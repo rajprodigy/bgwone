@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "GitaMetadata": {
+      "title": "Gita Metadata",
+      "description": "Metadata for the current Gita document",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "pdfUrl": { "type": "string" },
+        "pdfSize": { "type": "integer" }
+      },
+      "required": ["name", "updatedAt"]
+    },
+    "GitaChunk": {
+      "title": "Gita Chunk",
+      "description": "A single chunk of text and its embedding",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "embedding": { "type": "array", "items": { "type": "number" } },
+        "order": { "type": "integer" }
+      },
+      "required": ["text", "embedding", "order"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Admin user details",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/config/gita": {
+      "schema": "GitaMetadata",
+      "description": "Common configuration for the Gita document"
+    },
+    "/config/gita/chunks/{chunkId}": {
+      "schema": "GitaChunk",
+      "description": "Chunks of the Gita document"
+    },
+    "/admins/{userId}": {
+      "schema": "Admin",
+      "description": "List of authorized admins"
+    }
+  }
+}

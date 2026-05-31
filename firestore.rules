@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAdmin() {
+      return isSignedIn() && 
+             (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || 
+              (request.auth.token.email == 'rajyar99@gmail.com' && request.auth.token.email_verified == true)); // Admin bootstrap
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Validation Functions ---
+
+    function isValidGitaMetadata(data) {
+      return data.keys().hasAll(['name', 'updatedAt']) && 
+             data.keys().size() >= 2 && data.keys().size() <= 4 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.updatedAt == request.time &&
+             (!data.keys().hasAny(['pdfUrl']) || (data.pdfUrl is string && data.pdfUrl.size() <= 1000)) &&
+             (!data.keys().hasAny(['pdfSize']) || (data.pdfSize is int || data.pdfSize is float));
+    }
+
+    function isValidGitaChunk(data) {
+      return data.keys().hasAll(['text', 'embedding', 'order']) &&
+             data.keys().size() == 3 &&
+             data.text is string && data.text.size() <= 10000 &&
+             data.embedding is list && data.embedding.size() > 0 &&
+             data.order is int;
+    }
+
+    function isValidAdminDoc(data) {
+      return data.keys().hasAll(['email']) &&
+             data.keys().size() == 1 &&
+             data.email is string && data.email.size() <= 200;
+    }
+
+    // --- Match Rules ---
+
+    match /admins/{userId} {
+      allow get: if isVerifiedAdmin() && isValidId(userId);
+      allow list: if false; // List never allowed for admin collection
+      allow create, update: if isVerifiedAdmin() && isValidId(userId) && isValidAdminDoc(request.resource.data);
+      allow delete: if isVerifiedAdmin() && userId != request.auth.uid; // Prevent self-deletion if last admin
+    }
+
+    match /config/gita {
+      allow get: if true; // Publicly readable metadata
+      allow create, update: if isVerifiedAdmin() && isValidGitaMetadata(request.resource.data);
+      allow delete: if isVerifiedAdmin();
+
+      match /chunks/{chunkId} {
+        allow get: if true;
+        allow list: if true; // Chunks are readable by public for wisdom service
+        allow create, update: if isVerifiedAdmin() && isValidId(chunkId) && isValidGitaChunk(request.resource.data);
+        allow delete: if isVerifiedAdmin() && isValidId(chunkId);
+      }
+    }
+  }
+}
