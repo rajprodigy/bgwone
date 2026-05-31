@@ -410,7 +410,7 @@ export default function App() {
           .slice(0, 3)
           .map(c => c.text);
           
-        setStatus("Consulting Gemini...");
+        setStatus("Consulting wisdom...");
         response = await chatWithContext(messages, userMessage, topChunks, persona);
       } else {
         // Fallback to basic chat
@@ -539,8 +539,8 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
       circular ? "w-full h-full rounded-full" : "w-full h-full rounded-lg"
     )}>
       <img 
-        src="krishna_arjuna.jpg" 
-        alt="Krishna and Arjuna"
+        src="krishna.jpg" 
+        alt="Krishna"
         className="w-full h-full object-cover scale-[1.8] object-top translate-y-1"
         referrerPolicy="no-referrer"
       />
@@ -816,7 +816,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                   <input {...getInputProps()} />
                   <div className="w-40 h-32 bg-indigo-50 rounded-2xl flex items-center justify-center overflow-hidden border-4 border-white shadow-xl group-hover:scale-110 transition-transform duration-300">
                     <img 
-                      src="krishna_arjuna.jpg"
+                      src="images/krishna.jpg"
                       alt="Upload Gita"
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
