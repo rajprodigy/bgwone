@@ -187,7 +187,7 @@ export default function App() {
           setMessages(cachedSessions[0].messages);
         } else {
           const greetingText = loadedFile 
-            ? `Peace be with you. The Gita wisdom store (**${loadedFile.name}**) is active. How can I guide you today?`
+            ? `Peace be with you. The Gita wisdom is active. How can I guide you today?`
             : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
           
           const defaultSess: ChatSession = {
@@ -390,7 +390,7 @@ export default function App() {
     });
 
     setIsLoading(true);
-    setStatus("Searching wisdom store...");
+    setStatus("Lord Krishna is contemplating your question...");
 
     try {
       let response = "";
@@ -939,12 +939,12 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
               </div>
             </div>
 
-            {/* Input Container */}
-            <div id="input-area" className="p-4 md:p-6 bg-white border-t border-slate-200">
+            {/* Input Container - iOS Safari Optimized */}
+            <div id="input-area" className="p-3 md:p-6 bg-white border-t border-slate-200 pb-4 md:pb-6 safe-area-inset-bottom" style={{ paddingBottom: "calc(max(1rem, env(safe-area-inset-bottom)) + 1rem)" }}>
               <form 
                 id="chat-form"
                 onSubmit={handleSendMessage}
-                className="max-w-3xl mx-auto flex items-center gap-2 p-1 pl-4 bg-slate-50 border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-300 transition-all shadow-sm"
+                className="max-w-3xl mx-auto flex items-center gap-2 p-2 pl-4 bg-slate-50 border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-300 transition-all shadow-sm"
               >
                 <input
                   id="chat-input-field"
@@ -952,13 +952,16 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   placeholder="Ask for spiritual guidance from the document..."
-                  className="flex-1 bg-transparent border-none py-3 text-sm focus:ring-0 placeholder:text-slate-400"
+                  className="flex-1 bg-transparent border-none py-2.5 md:py-3 px-1 text-sm focus:ring-0 focus:outline-none placeholder:text-slate-400 min-h-[44px] md:min-h-auto"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                 />
                 <button
                   id="send-message-btn"
                   type="submit"
                   disabled={isLoading || !inputText.trim()}
-                  className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 shadow-md transition-all active:scale-95"
+                  className="p-2 md:p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 shadow-md transition-all active:scale-95 shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <Send className="w-4 h-4" />
                 </button>
