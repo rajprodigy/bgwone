@@ -410,7 +410,7 @@ export default function App() {
           .slice(0, 3)
           .map(c => c.text);
           
-        setStatus("Consulting wisdom...");
+        setStatus("Lord Krishna contemplating your question? " );
         response = await chatWithContext(messages, userMessage, topChunks, persona);
       } else {
         // Fallback to basic chat
@@ -464,7 +464,7 @@ export default function App() {
 
   const handleNewChat = () => {
     const greeting = file 
-      ? `Peace be with you. The Gita wisdom store (**${file.name}**) is active. How can I guide you today?`
+      ? `Peace be with you. The Gita wisdom is active. How can I guide you today?`
       : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
     
     const newSession: ChatSession = {
@@ -882,9 +882,9 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             {/* Chat Area */}
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8"
+              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-6 md:pb-12"
             >
-              <div className="max-w-3xl mx-auto space-y-6">
+              <div className="max-w-3xl mx-auto space-y-6 mb-6 md:mb-12">
                 {messages.map((message, index) => (
                   <motion.div
                     key={index}
@@ -940,7 +940,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             </div>
 
             {/* Input Container - iOS Safari Optimized */}
-            <div id="input-area" className="p-3 md:p-6 bg-white border-t border-slate-200 pb-4 md:pb-6 safe-area-inset-bottom" style={{ paddingBottom: "calc(max(1rem, env(safe-area-inset-bottom)) + 1rem)" }}>
+            <div id="input-area" className="px-3 md:px-6 pt-3 md:pt-4 pb-6 md:pb-8 bg-white border-t border-slate-200 safe-area-inset-bottom" style={{ paddingBottom: "calc(max(1.5rem, env(safe-area-inset-bottom)) + 1rem)" }}>
               <form 
                 id="chat-form"
                 onSubmit={handleSendMessage}
@@ -966,14 +966,14 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                   <Send className="w-4 h-4" />
                 </button>
               </form>
-              <div id="input-suggestions" className="max-w-3xl mx-auto mt-3 hidden md:flex items-center gap-6 px-1">
-                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Wisdom Seeds</span>
-                <div className="flex gap-2">
+              <div id="input-suggestions" className="max-w-3xl mx-auto mt-2 md:mt-3 flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-6 px-1">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest whitespace-nowrap">Wisdom Seeds</span>
+                <div className="flex flex-wrap gap-2 w-full md:w-auto">
                   {["Summarize the main message", "Finding peace in chaos?", "What is Dharma?"].map((text) => (
                     <button
                       key={text}
                       onClick={() => setInputText(text)}
-                      className="text-[11px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors"
+                      className="text-[10px] md:text-[11px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors whitespace-nowrap flex-shrink-0"
                     >
                       {text}
                     </button>

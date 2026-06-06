@@ -66,6 +66,12 @@ textarea:focus {
 #input-area {
   position: relative;
   z-index: 100;
+  min-height: auto;
+  flex-shrink: 0;
+}
+
+#chat-form {
+  margin-bottom: 0.75rem;
 }
 
 /* Ensure form doesn't get hidden behind keyboard on iOS */
@@ -79,6 +85,22 @@ html {
   height: 100%;
   height: 100vh;
   height: 100dvh;
+}
+
+/* Add extra bottom margin for mobile views */
+@media (max-width: 768px) {
+  main {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  #chat-form {
+    margin-bottom: 1rem;
+  }
+  
+  #input-area {
+    margin-bottom: 1.5rem;
+  }
 }
 
 .markdown-body h1 { @apply text-xl font-bold mb-4 mt-6; }
