@@ -464,8 +464,8 @@ export default function App() {
 
   const handleNewChat = () => {
     const greeting = file 
-      ? `Peace be with you. The Gita wisdom is active. How can I guide you today?`
-      : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
+      ? `Peace be with you. The Bhagavad Gita is active. How can I guide you today?`
+      : "Peace be with you. The Bhagavad Gita scripture is active and ready to guide you. How can I help you navigate the battles of your life today?";
     
     const newSession: ChatSession = {
       id: Math.random().toString(36).substring(2, 9),
@@ -844,7 +844,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col h-full bg-slate-50/30">
+          <div className="flex-1 flex flex-col h-full bg-transparent">
             {/* Header */}
             <header id="chat-header" className="h-12 bg-white border-b border-slate-100 px-6 flex items-center justify-between z-10 shrink-0">
               <div className="flex items-center gap-2 md:gap-4 truncate">
@@ -882,7 +882,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             {/* Chat Area */}
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-6 md:pb-12"
+              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-6 md:pb-12 bg-contain bg-center bg-no-repeat"
             >
               <div className="max-w-3xl mx-auto space-y-6 mb-6 md:mb-12">
                 {messages.map((message, index) => (

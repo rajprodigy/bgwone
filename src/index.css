@@ -10,18 +10,15 @@
   }
 }
 body {
-  @apply bg-slate-50 text-slate-900;
-  background-image: url('backdrop.jpg');
-  background-size:contain;
-  background-position: center;
-  background-attachment:scroll;
-  background-repeat: no-repeat;
+  @apply bg-slate-50 text-slate-900;    
   background-color: #f1f5f9;
   min-height: 100vh;
   /* iOS Safari viewport fixes */
   -webkit-user-select: none;
   user-select: none;
 }
+
+
 
 /* iOS Safari input field optimizations */
 input[type="text"],
@@ -42,7 +39,27 @@ textarea:focus {
   outline: none;
 }
 
-/* Allow text selection on user/content areas */
+/* Override all white backgrounds in chat area */
+div[id="input-area"],
+div[id="chat-header"] {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  border-color: rgba(203, 213, 225, 0.5) !important;
+}
+
+/* Make border colors semi-transparent */
+.border-slate-200 {
+  border-color: rgba(203, 213, 225, 0.5) !important;
+}
+
+.border-slate-100 {
+  border-color: rgba(226, 232, 240, 0.5) !important;
+}
+
+/* Override bg-white globally in chat container */
+[class*="flex-col"] .bg-white,
+main .bg-white {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
 .markdown-body,
 #chat-input-field {
   -webkit-user-select: text;
@@ -68,13 +85,42 @@ textarea:focus {
   z-index: 100;
   min-height: auto;
   flex-shrink: 0;
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: rgba(203, 213, 225, 0.5) !important;
+}
+
+/* Override white background on input area */
+#input-area.bg-white {
+  background-color: rgba(255, 255, 255, 0.88) !important;
 }
 
 #chat-form {
   margin-bottom: 0.75rem;
+  background-color: rgba(241, 245, 249, 0.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: rgba(203, 213, 225, 0.5) !important;
 }
 
-/* Ensure form doesn't get hidden behind keyboard on iOS */
+/* Chat header transparency */
+#chat-header {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: rgba(203, 213, 225, 0.5) !important;
+}
+
+/* Ensure chat container is fully transparent */
+main > [class*="flex-col"]:last-child {
+  background-color: transparent !important;
+}
+
+/* Make sure parent divs don't have white backgrounds */
+[class*="flex-col"][class*="h-full"] {
+  background-color: transparent !important;
+}
 html {
   height: 100%;
   height: 100vh;
@@ -101,6 +147,70 @@ html {
   #input-area {
     margin-bottom: 1.5rem;
   }
+  
+  /* Force transparent on mobile */
+  #input-area {
+    background-color: rgba(255, 255, 255, 0.88) !important;
+  }
+  
+  #chat-header {
+    background-color: rgba(255, 255, 255, 0.88) !important;
+  }
+}
+
+/* Chat area responsive backdrop styling with gray overlay */
+[class*="overflow-y-auto"][class*="pb-6"] {
+  background-image: linear-gradient(rgba(120, 120, 140, 0.6), rgba(120, 120, 140, 0.6)), url('/backdrop.jpg');
+  background-size: auto, contain;
+  background-position: center top, center top;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: scroll;
+  background-color: transparent !important;
+}
+
+@media (max-width: 640px) {
+  [class*="overflow-y-auto"][class*="pb-6"] {
+    background-size: auto, auto 35%;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  [class*="overflow-y-auto"][class*="pb-6"] {
+    background-size: auto, auto 50%;
+  }
+}
+
+@media (min-width: 769px) {
+  [class*="overflow-y-auto"][class*="pb-6"] {
+    background-size: auto, auto 85%;
+  }
+}
+
+/* Make chat message bubbles semi-transparent with blur effect */
+.rounded-2xl.border.border-slate-200 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.bg-white.border.border-slate-200.rounded-2xl {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* User message styling - more transparent */
+.bg-slate-800.text-white {
+  background-color: rgba(30, 41, 59, 0.75) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Loading state message */
+.bg-white.border.border-slate-200.rounded-2xl.rounded-tl-none {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .markdown-body h1 { @apply text-xl font-bold mb-4 mt-6; }
