@@ -706,7 +706,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             <div className="w-8 h-8 rounded-full overflow-hidden border border-indigo-100 p-0.5">
               <KrishnaIcon circular />
             </div>
-            <span>Gita's Wisdom</span>
+            <span>Bhagavad Gita - Wisdom</span>
           </div>
           
           <div className="flex items-center gap-4">
