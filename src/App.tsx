@@ -31,10 +31,12 @@ import {
   getEmbeddings, 
   cosineSimilarity, 
   type Message, 
-  type Chunk 
+  type Chunk,
+  retrieveRagContextFromPastMessages
 } from "./lib/gemini";
 import { extractTextFromPdf, chunkText } from "./lib/pdfUtils";
 import { auth, loginWithGoogle, logout, isAdmin as checkAdmin, saveGitaData, loadGitaData } from "./lib/firebase";
+import { saveMessageToRag, searchRagStorage, type StoredMessage } from "./lib/ragStorage";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
 export interface ChatSession {
@@ -395,23 +397,38 @@ export default function App() {
     try {
       let response = "";
       
+      // Get embedding for user message for RAG search
+      const [userMessageEmbedding] = await getEmbeddings([userMessage]);
+      
+      // Search for relevant past conversations (RAG)
+      const relevantPastMessages = searchRagStorage(userMessageEmbedding, {
+        topK: 3,
+        similarityThreshold: 0.65,
+        excludeSessionId: currentSessionId,
+      });
+
+      // Extract context from relevant past messages
+      const pastContextStrings = relevantPastMessages
+        .filter(msg => msg.role === "model") // Focus on model responses which have guidance
+        .map(msg => msg.content);
+
       if (vectorStore.length > 0) {
-        // RAG Flow
-        const [queryEmbedding] = await getEmbeddings([userMessage]);
-        
-        // Find top 3 relevant chunks
+        // RAG Flow with both PDF and past conversation context
         const similarities = vectorStore.map(chunk => ({
           text: chunk.text,
-          score: cosineSimilarity(queryEmbedding, chunk.embedding)
+          score: cosineSimilarity(userMessageEmbedding, chunk.embedding)
         }));
         
         const topChunks = similarities
           .sort((a, b) => b.score - a.score)
           .slice(0, 3)
           .map(c => c.text);
-          
-        setStatus("Lord Krishna contemplating your question? " );
-        response = await chatWithContext(messages, userMessage, topChunks, persona);
+        
+        // Combine PDF context with past conversation context
+        const combinedContext = [...topChunks, ...pastContextStrings];
+        
+        setStatus("Lord Krishna is retrieving wisdom from past conversations...");
+        response = await chatWithContext(messages, userMessage, combinedContext, persona);
       } else {
         // Fallback to basic chat
         const isLargeFile = file.base64.length * 0.75 > GEMINI_INLINE_LIMIT;
@@ -419,8 +436,15 @@ export default function App() {
         response = await chatWithPdf(pdfDataToSend, messages, userMessage, file.extractedText, persona);
       }
       
+      // Get embedding for model response
+      const [responseEmbedding] = await getEmbeddings([response]);
+      
       const finalMessages: Message[] = [...updatedMessages, { role: "model", content: response }];
       setMessages(finalMessages);
+
+      // Save both messages to RAG storage for future retrieval
+      saveMessageToRag(currentSessionId, "user", userMessage, userMessageEmbedding);
+      saveMessageToRag(currentSessionId, "model", response, responseEmbedding);
 
       setSessions(prev => {
         const next = prev.map(s => {
@@ -441,6 +465,14 @@ export default function App() {
       const errorMsg: Message = { role: "model", content: "Apologies, I encountered a disturbance in the wisdom field. Please try again." };
       const failedMessages = [...updatedMessages, errorMsg];
       setMessages(failedMessages);
+
+      // Save error message to RAG storage
+      try {
+        const [errorEmbedding] = await getEmbeddings([errorMsg.content]);
+        saveMessageToRag(currentSessionId, "model", errorMsg.content, errorEmbedding);
+      } catch (e) {
+        console.warn("Failed to save error message to RAG storage:", e);
+      }
 
       setSessions(prev => {
         const next = prev.map(s => {
@@ -541,7 +573,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
       <img 
         src="krishna.jpg" 
         alt="Krishna"
-        className="w-full h-full object-cover scale-[1.8] object-top translate-y-1"
+        className="w-full h-full object-cover scale-[1.2] object-top translate-y-1"
         referrerPolicy="no-referrer"
       />
     </div>

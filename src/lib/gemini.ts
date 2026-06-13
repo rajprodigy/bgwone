@@ -104,7 +104,7 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
 [Include the acutal Shloka in English and 1-2 lines max of English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
 
 ### Explanation
-[A simple, clear explanation of the verse in plain language, explaining how it applies to their doubt]
+[A simple one or two lines of clear explanation of the verse in plain language, explaining how it applies to their doubt]
 
 ### Practical steps
 [two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
@@ -177,13 +177,13 @@ Help the seeker rise above confusion, perform their duties, and progress toward 
 Whenever the user asks a question, you MUST respond exactly in this structure:
 
 ### Krishna’s direct guidance
-[2-3 lines of your personal message of divine guidance, compassion, and steadiness]
+[1-2 lines of your personal message of divine guidance, compassion, and steadiness]
 
 ### Relevant Gita verse
 [1-2 lines max of Sanskrit or English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
 
 ### Explanation
-[A simple, clear explanation of the verse in plain language, explaining how it applies to their doubt]
+[A simple one or two lines of  clear explanation of the verse in plain language, explaining how it applies to their doubt]
 
 ### Practical steps
 [two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
@@ -215,4 +215,35 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
     console.error("Gemini API Error:", error);
     throw error;
   }
+}
+
+/**
+ * Retrieve relevant context from past conversations using RAG
+ * @param queryEmbedding - Embedding of the current user query
+ * @param pastMessageContexts - Array of past message contents to search through
+ * @param topK - Number of relevant messages to retrieve
+ * @returns Array of relevant message contents
+ */
+export function retrieveRagContextFromPastMessages(
+  queryEmbedding: number[],
+  pastMessageContexts: Array<{ content: string; embedding: number[] }>,
+  topK: number = 3,
+  threshold: number = 0.65
+): string[] {
+  if (!queryEmbedding || queryEmbedding.length === 0 || pastMessageContexts.length === 0) {
+    return [];
+  }
+
+  // Score all past messages by similarity to query
+  const scored = pastMessageContexts
+    .filter(msg => msg.embedding && msg.embedding.length > 0)
+    .map(msg => ({
+      content: msg.content,
+      score: cosineSimilarity(queryEmbedding, msg.embedding),
+    }))
+    .filter(item => item.score >= threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
+
+  return scored.map(item => item.content);
 }
