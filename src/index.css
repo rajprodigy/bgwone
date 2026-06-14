@@ -1,17 +1,23 @@
 @import "tailwindcss";
 
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
 :root {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply text-slate-900;
   }
 }
 body {
-  @apply bg-slate-50 text-slate-900;    
-  background-color: #f1f5f9;
+  @apply text-slate-900;
+  background-color: transparent;
   min-height: 100vh;
   /* iOS Safari viewport fixes */
   -webkit-user-select: none;
@@ -121,17 +127,7 @@ main > [class*="flex-col"]:last-child {
 [class*="flex-col"][class*="h-full"] {
   background-color: transparent !important;
 }
-html {
-  height: 100%;
-  height: 100vh;
-  height: 100dvh;
-}
 
-#root {
-  height: 100%;
-  height: 100vh;
-  height: 100dvh;
-}
 
 /* Add extra bottom margin for mobile views */
 @media (max-width: 768px) {
@@ -158,32 +154,20 @@ html {
   }
 }
 
-/* Chat area responsive backdrop styling with gray overlay */
-[class*="overflow-y-auto"][class*="pb-6"] {
-  background-image: linear-gradient(rgba(120, 120, 140, 0.6), rgba(120, 120, 140, 0.6)), url('/backdrop.jpg');
-  background-size: cover;
+/* ── Fixed full-screen backdrop ───────────────────────── */
+.backdrop-fixed {
+  position: fixed;
+  inset: 0;                            /* covers entire viewport always */
+  background-image: url('/backdrop_panorama.jpg');
+  background-size: cover;              /* fills without gaps */
   background-position: center center;
-  background-repeat: no-repeat, no-repeat;
-  background-attachment: scroll;
-  background-color: transparent !important;
+  background-repeat: no-repeat;
+  z-index: -1;                         /* behind everything */
 }
 
-@media (max-width: 640px) {
-  [class*="overflow-y-auto"][class*="pb-6"] {
-    background-size: auto, auto 35%;
-  }
-}
-
-@media (min-width: 641px) and (max-width: 768px) {
-  [class*="overflow-y-auto"][class*="pb-6"] {
-    background-size: auto, auto 50%;
-  }
-}
-
-@media (min-width: 769px) {
-  [class*="overflow-y-auto"][class*="pb-6"] {
-    background-size: auto, auto 85%;
-  }
+/* Transparent chat scroll area so backdrop shows through */
+[class*="overflow-y-auto"][class*="pb-6"] {
+  background: transparent !important;
 }
 
 /* Make chat message bubbles semi-transparent with blur effect */

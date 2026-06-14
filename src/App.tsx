@@ -427,7 +427,7 @@ export default function App() {
         // Combine PDF context with past conversation context
         const combinedContext = [...topChunks, ...pastContextStrings];
         
-        setStatus("Lord Krishna is retrieving wisdom from past conversations...");
+        setStatus("Lord Krishna is preparing response...");
         response = await chatWithContext(messages, userMessage, combinedContext, persona);
       } else {
         // Fallback to basic chat
@@ -581,6 +581,9 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
 
   return (
     <div className="relative flex h-screen text-slate-900 font-sans overflow-hidden">
+
+      {/* Full-screen fixed backdrop */}
+      <div className="backdrop-fixed" aria-hidden="true" />
     
       {/* Error Notification */}
       <AnimatePresence>
@@ -914,7 +917,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             {/* Chat Area */}
             <div 
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-6 md:pb-12 bg-contain bg-center bg-no-repeat"
+              className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-6 md:pb-12"
             >
               <div className="max-w-3xl mx-auto space-y-6 mb-6 md:mb-12">
                 {messages.map((message, index) => (
