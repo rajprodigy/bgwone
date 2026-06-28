@@ -17,8 +17,9 @@ import {
   X,
   MessageSquare,
   Sparkles,
-  Plus,
-  Menu
+  Plus,  
+  Menu,
+  Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -30,6 +31,7 @@ import {
   chatWithContext, 
   getEmbeddings, 
   cosineSimilarity, 
+  translateText,
   type Message, 
   type Chunk,
   retrieveRagContextFromPastMessages
@@ -87,6 +89,71 @@ export default function App() {
   // Chat Session states
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>("");
+
+  const [language, setLanguage] = useState<string>("English");
+  const [messageTranslations, setMessageTranslations] = useState<Record<number, { text: string; lang: string }>>({});
+  const [translatingIndex, setTranslatingIndex] = useState<number | null>(null);
+
+  const handleTranslateMessage = async (msgIndex: number, text: string, targetLang: string) => {
+    if (targetLang === "Original") {
+      const updated = { ...messageTranslations };
+      delete updated[msgIndex];
+      setMessageTranslations(updated);
+      return;
+    }
+
+    setTranslatingIndex(msgIndex);
+    try {
+      const translated = await translateText(text, targetLang);
+      setMessageTranslations(prev => ({
+        ...prev,
+        [msgIndex]: { text: translated, lang: targetLang }
+      }));
+    } catch (err) {
+      console.error("Translation fail:", err);
+    } finally {
+      setTranslatingIndex(null);
+    }
+  };
+
+  const handleGlobalLanguageChange = async (targetLang: string) => {
+    setLanguage(targetLang);
+    if (!messages || messages.length === 0) return;
+
+    if (targetLang === "English") {
+      setMessageTranslations({});
+      return;
+    }
+
+    // Translate all model messages in the current conversation to the new target language
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === "model") {
+        if (messageTranslations[i]?.lang === targetLang) {
+          continue;
+        }
+
+        setTranslatingIndex(i);
+        try {
+          const translated = await translateText(msg.content, targetLang);
+          setMessageTranslations(prev => ({
+            ...prev,
+            [i]: { text: translated, lang: targetLang }
+          }));
+        } catch (err) {
+          console.error("Global translation error:", err);
+        } finally {
+          setTranslatingIndex(null);
+        }
+      }
+    }
+  };
+
+  // Reset translations on session switches
+  useEffect(() => {
+    setMessageTranslations({});
+  }, [currentSessionId]);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [persona, setPersona] = useState<"krishna" | "scholar">("krishna");
   
@@ -428,12 +495,12 @@ export default function App() {
         const combinedContext = [...topChunks, ...pastContextStrings];
         
         setStatus("Lord Krishna is preparing response...");
-        response = await chatWithContext(messages, userMessage, combinedContext, persona);
+        response = await chatWithContext(messages, userMessage, combinedContext, persona, language);
       } else {
         // Fallback to basic chat
         const isLargeFile = file.base64.length * 0.75 > GEMINI_INLINE_LIMIT;
         const pdfDataToSend = isLargeFile ? null : file.base64;
-        response = await chatWithPdf(pdfDataToSend, messages, userMessage, file.extractedText, persona);
+        response = await chatWithPdf(pdfDataToSend, messages, userMessage, file.extractedText, persona,language);
       }
       
       // Get embedding for model response
@@ -776,7 +843,31 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                 <span className="inline sm:hidden">Scholar</span>
               </button>
             </div>
-
+            {/* Guidance Language Selection */}
+            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-all shadow-inner gap-1.5 shrink-0" id="language-selector">
+              <Globe className="w-3.5 h-3.5 text-indigo-600/70 shrink-0" />
+              <select
+                value={language}
+                onChange={(e) => handleGlobalLanguageChange(e.target.value)}
+                className="bg-transparent border-none text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1"
+                title="Select language for responses"
+              >
+                        <option value="English">English</option>
+                        <option value="Hindi">हिन्दी (Hindi)</option>
+                        <option value="Spanish">Español (Spanish)</option>
+                        <option value="Sanskrit">संस्कृतम् (Sanskrit)</option>
+                        <option value="French">Français (French)</option>
+                        <option value="German">Deutsch (German)</option>
+                        <option value="Telugu">తెలుగు (Telugu)</option>
+                        <option value="Tamil">தமிழ் (Tamil)</option>
+                        <option value="Bengali">বাংলা (Bengali)</option>
+                        <option value="Marathi">मराठी (Marathi)</option>
+                        <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                        <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
+                        <option value="Malayalam">മലയാളం (Malayalam)</option>
+              </select>
+            </div>
+            
             {file && isAdminUser && (
               <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg max-w-xs">
                 <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
@@ -950,8 +1041,48 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                         "markdown-body text-sm leading-relaxed",
                         message.role === "user" ? "text-slate-100" : "text-slate-700"
                       )}>
-                        <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
+                         <Markdown remarkPlugins={[remarkGfm]}>
+                          {messageTranslations[index]?.text || message.content}
+                        </Markdown>
                       </div>
+                       {message.role === "model" && (
+                        <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-4">
+                          <span className="text-[10px] text-slate-400 font-medium font-sans">
+                            {messageTranslations[index] 
+                              ? `Translated to ${messageTranslations[index].lang}` 
+                              : "Original response"}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {translatingIndex === index ? (
+                              <div className="flex items-center gap-1 text-[10px] text-indigo-500 font-medium">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>Translating...</span>
+                              </div>
+                            ) : (
+                              <select
+                                onChange={(e) => handleTranslateMessage(index, message.content, e.target.value)}
+                                value={messageTranslations[index]?.lang || "Original"}
+                                className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] text-slate-500 font-bold py-1 px-2 cursor-pointer transition-all focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                              >
+                                <option value="Original">Translate response...</option>
+                                <option value="English">English</option>
+                                <option value="Hindi">हिन्दी (Hindi)</option>
+                                <option value="Spanish">Español (Spanish)</option>
+                                <option value="Sanskrit">संस्कृतम् (Sanskrit)</option>
+                                <option value="French">Français (French)</option>
+                                <option value="German">Deutsch (German)</option>
+                                <option value="Telugu">తెలుగు (Telugu)</option>
+                                <option value="Tamil">தமிழ் (Tamil)</option>
+                                <option value="Bengali">বাংলা (Bengali)</option>
+                                <option value="Marathi">मराठी (Marathi)</option>
+                                <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                                <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
+                                <option value="Malayalam">മലയാളం (Malayalam)</option>
+                              </select>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ))}
