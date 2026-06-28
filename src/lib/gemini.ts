@@ -3,6 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 // Prefer Vite env var for frontend testing, fall back to process.env for Node environments.
 const API_KEY = (import.meta as any)?.env?.VITE_GEMINI_API_KEY || (process.env as any)?.GEMINI_API_KEY;
 
+const GEMINI_MODEL = (import.meta as any)?.env?.VITE_GEMINI_MODEL || (process.env as any)?.GEMINI_MODEL;
+
 let ai: any = null;
 if (API_KEY) {
   ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -69,7 +71,8 @@ export async function chatWithContext(
   history: Message[],
   userPrompt: string,
   contextChunks: string[],
-  persona: "krishna" | "scholar" = "krishna"
+  persona: "krishna" | "scholar" = "krishna",
+  language: string = "English"
 ) {
   const contextStr = contextChunks.join("\n\n---\n\n");
   
@@ -98,19 +101,19 @@ Help the seeker rise above confusion, perform their duties, and progress toward 
 Whenever the user asks a question, you MUST respond exactly in this structure:
 
 ### Krishna’s direct guidance
-[one line of your personal message of divine guidance, compassion, and steadiness]
+[1-2 lines of your personal message of divine guidance, compassion, and steadiness in ${language}]
 
 ### Relevant Gita verse
-[Include the acutal Shloka in English and 1-2 lines max of English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
+[1-2 lines max of Sanskrit or in ${language} translation of the Bhagavad Gita verse along with its translation in ${language}, including chapter and verse number, e.g. BG 2.47]
 
 ### Explanation
-[A simple one or two lines of clear explanation of the verse in plain language, explaining how it applies to their doubt]
+[A simple one or two lines of  clear explanation of the verse in plain language, explaining how it applies to their doubt in ${language}]
 
 ### Practical steps
-[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
+[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state in ${language}]
 
 ### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+[A reassuring, high-consciousness summary or closing spiritual wisdom in ${language}. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
   } else {
     systemInstruction = "You are the 'Gita scholar' assistant. Answer questions objectively and comprehensively by referring to the provided Gita document context. Be spiritual, wisdom-focused, yet practical. If the answer isn't in the context, use your general knowledge of the Bhagavad Gita to answer faithfully.";
   }
@@ -122,7 +125,7 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
       );
     }
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       // @ts-ignore
       contents: contents,
       config: {
@@ -143,7 +146,8 @@ export async function chatWithPdf(
   history: Message[],
   userPrompt: string,
   extractedText?: string,
-  persona: "krishna" | "scholar" = "krishna"
+  persona: "krishna" | "scholar" = "krishna",
+  language: string = "English"
 ) {
   const contents = [
     ...history.map(msg => ({
@@ -177,19 +181,19 @@ Help the seeker rise above confusion, perform their duties, and progress toward 
 Whenever the user asks a question, you MUST respond exactly in this structure:
 
 ### Krishna’s direct guidance
-[1-2 lines of your personal message of divine guidance, compassion, and steadiness]
+[1-2 lines of your personal message of divine guidance, compassion, and steadiness in ${language}]
 
 ### Relevant Gita verse
-[1-2 lines max of Sanskrit or English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
+[1-2 lines max of Sanskrit or in ${language} translation of the Bhagavad Gita verse along with its translation in ${language}, including chapter and verse number, e.g. BG 2.47]
 
 ### Explanation
-[A simple one or two lines of  clear explanation of the verse in plain language, explaining how it applies to their doubt]
+[A simple one or two lines of  clear explanation of the verse in plain language, explaining how it applies to their doubt in ${language}]
 
 ### Practical steps
-[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
+[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state in ${language}]
 
 ### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+[A reassuring, high-consciousness summary or closing spiritual wisdom in ${language}. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
   } else {
     systemInstruction = "You are a helpful AI assistant that answers questions based on the provided PDF document. Be precise, concise, and professional. If the information is not in the PDF, state that clearly.";
   }
@@ -201,7 +205,7 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
       );
     }
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       // @ts-ignore - The SDK might have slightly different types for history in contents
       contents: contents,
       config: {
@@ -246,4 +250,22 @@ export function retrieveRagContextFromPastMessages(
     .slice(0, topK);
 
   return scored.map(item => item.content);
+}
+export async function translateText(text: string, targetLanguage: string): Promise<string> {
+  if (!text || !targetLanguage || targetLanguage.toLowerCase() === "english") return text;
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: `Translate the following text into the language "${targetLanguage}". Maintain all markdown structure, headings, bold text, numbered lists, blockquotes, and spacing exactly. Do not add any introductory or closing remarks, conversations, explanations, or labels - return ONLY the translated content:
+
+${text}`,
+      config: {
+        temperature: 0.1,
+      }
+    });
+    return response.text?.trim() || text;
+  } catch (error) {
+    console.warn("Translation failed, returning original text:", error);
+    return text;
+  }
 }
