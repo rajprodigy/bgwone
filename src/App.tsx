@@ -19,7 +19,8 @@ import {
   Sparkles,
   Plus,  
   Menu,
-  Globe
+  Globe,
+  LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -640,14 +641,14 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
       <img 
         src="krishna.jpg" 
         alt="Krishna"
-        className="w-full h-full object-cover scale-[1.2] object-top translate-y-1"
+        className="w-full h-full object-cover scale-[1.8] object-top translate-y-1"
         referrerPolicy="no-referrer"
       />
     </div>
   );
 
   return (
-    <div className="relative flex h-screen text-slate-900 font-sans overflow-hidden">
+    <div className="relative bg-[#F9FAFB] flex h-screen text-slate-900 font-sans overflow-hidden">
 
       {/* Full-screen fixed backdrop */}
       <div className="backdrop-fixed" aria-hidden="true" />
@@ -794,8 +795,8 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <header id="main-nav" className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-20 sticky top-0">
-          <div className="flex items-center gap-2 font-bold text-xl text-indigo-600">
+       <header id="main-nav" className="h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between z-20 sticky top-0">
+          <div className="flex items-center gap-2 font-bold text-lg sm:text-xl text-indigo-600 shrink-0">
             {file && (
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -805,51 +806,38 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-indigo-100 p-0.5">
+      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden border border-indigo-100 p-0.5 shrink-0">
               <KrishnaIcon circular />
             </div>
-            <span>Bhagavad Gita - Wisdom</span>
+            <span>Bhagavad Gita </span>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Guidance Mode Selection Toggle */}
-            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 p-0.5 rounded-xl border border-slate-200 transition-all shadow-inner shrink-0" id="persona-selector">
-              <button
-                onClick={() => setPersona("krishna")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer select-none",
-                  persona === "krishna"
-                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50 font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-                title="Converse directly with Lord Krishna and receive direct answers in verses"
+          <div className="flex items-center gap-1 sm:gap-2.5 min-w-0">
+            {/* Guidance Mode Selection Dropdown */}
+            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all shadow-inner gap-0.5 sm:gap-1.5 shrink-0" id="persona-selector">
+              {persona === "krishna" ? (
+                <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600/70 shrink-0" />
+              ) : (
+                <Bot className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-500 shrink-0" />
+              )}
+              <select
+                value={persona}
+                onChange={(e) => setPersona(e.target.value as "krishna" | "scholar")}
+                className="bg-transparent border-none text-[11px] sm:text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1 py-0"
+                title="Select Guidance Mode"
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                <span className="hidden sm:inline">Lord Krishna Mode</span>
-                <span className="inline sm:hidden">Krishna</span>
-              </button>
-              <button
-                onClick={() => setPersona("scholar")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer select-none",
-                  persona === "scholar"
-                    ? "bg-white text-slate-800 shadow-sm border border-slate-200/50 font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-                title="Analyze verses analytically with standard Gita scholar mode"
-              >
-                <Bot className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span className="hidden sm:inline">Gita Scholar Mode</span>
-                <span className="inline sm:hidden">Scholar</span>
-              </button>
+                <option value="krishna">Krishna</option>
+                <option value="scholar">Scholar</option>
+              </select>
             </div>
+
             {/* Guidance Language Selection */}
-            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-all shadow-inner gap-1.5 shrink-0" id="language-selector">
-              <Globe className="w-3.5 h-3.5 text-indigo-600/70 shrink-0" />
+            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all shadow-inner gap-0.5 sm:gap-1.5 shrink-0" id="language-selector">
+              <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600/70 shrink-0" />
               <select
                 value={language}
                 onChange={(e) => handleGlobalLanguageChange(e.target.value)}
-                className="bg-transparent border-none text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1"
+                className="bg-transparent border-none text-[11px] sm:text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1 py-0"
                 title="Select language for responses"
               >
                         <option value="English">English</option>
@@ -869,7 +857,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             </div>
             
             {file && isAdminUser && (
-              <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg max-w-xs">
+              <div className="hidden lg:flex items-center gap-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg max-w-xs">
                 <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
                 <span className="text-xs font-medium text-slate-600 truncate">{file.name}</span>
               </div>
@@ -878,18 +866,20 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             {user ? (
               <button 
                 onClick={logout}
-                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer"
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer" title="Logout"
               >
-                {isAdminUser && <Sparkles className="w-3 h-3 text-amber-400" />}
-                Logout
+                 {isAdminUser && <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />}
+                <span className="hidden sm:inline">Logout</span>
+                <LogOut className="w-4 h-4 sm:hidden text-slate-400" />
               </button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button 
                   onClick={loginWithGoogle}
                   className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest transition-colors cursor-pointer"
                 >
-                  Admin Login
+                  <span className="hidden sm:inline">Admin Login</span>
+                  <span className="sm:hidden">Admin</span>
                 </button>
                 {(import.meta as any).env?.DEV && (
                   <button
@@ -901,8 +891,8 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                     }}
                     className="text-[10px] text-amber-600 hover:text-amber-700 font-bold border border-amber-200 bg-amber-50 px-2 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer active:scale-95 animate-pulse"
                   >
-                    <Sparkles className="w-2.5 h-2.5 text-amber-500" />
-                    Dev Admin
+                    <Sparkles className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                    <span className="hidden sm:inline">Dev Admin</span>
                   </button>
                 )}
               </div>
