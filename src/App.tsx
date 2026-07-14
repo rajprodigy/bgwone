@@ -20,7 +20,11 @@ import {
   Plus,  
   Menu,
   Globe,
-  LogOut
+  LogOut,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -90,10 +94,121 @@ export default function App() {
   // Chat Session states
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>("");
-
   const [language, setLanguage] = useState<string>("English");
+
+  const languageRef = useRef(language);
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
+
   const [messageTranslations, setMessageTranslations] = useState<Record<number, { text: string; lang: string }>>({});
   const [translatingIndex, setTranslatingIndex] = useState<number | null>(null);
+  
+  const [isListening, setIsListening] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+
+      rec.onresult = async (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          const currentLang = languageRef.current;
+          let textToInsert = transcript;
+
+          if (currentLang && currentLang !== "English") {
+            try {
+              setStatus(`Translating speech to ${currentLang}...`);
+              textToInsert = await translateText(transcript, currentLang);
+            } catch (err) {
+              console.error("Speech translation error:", err);
+            } finally {
+              setStatus(null);
+            }
+          }
+
+          setInputText(prev => {
+            const base = prev.trim();
+            return base ? `${base} ${textToInsert.trim()}` : textToInsert.trim();
+          });
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        if (event.error === "no-speech") {
+          console.warn("Speech recognition ended: no speech was detected.");
+          setIsListening(false);
+          return;
+        }
+        console.error("Speech recognition error:", event.error);
+        
+        // Handle browser limitations for unsupported locales (like sa-IN, ml-IN, etc.) gracefully.
+        // Fallback to English and restart so the user can speak in English and get it translated.
+        if (event.error === "language-not-supported" || event.error === "not-allowed" || event.error === "service-not-allowed") {
+          if (rec.lang !== "en-US") {
+            console.log("Selected speech language not supported by browser. Falling back to English with translation...");
+            rec.lang = "en-US";
+            try {
+              rec.start();
+              setIsListening(true);
+              return;
+            } catch (retryErr) {
+              console.error("Speech recognition retry failed:", retryErr);
+            }
+          }
+        }
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      setRecognition(rec);
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognition) {
+      setError("Speech recognition is not supported in this browser. Try Chrome or Safari.");
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+
+    if (isListening) {
+      recognition.stop();
+    } else {
+      const langMap: Record<string, string> = {
+        "English": "en-US",
+        "Hindi": "hi-IN",
+        "Spanish": "es-ES",
+        "Sanskrit": "en-US", // Map Sanskrit input directly to English since sa-IN is unsupported on browsers, enabling auto-translation!
+        "French": "fr-FR",
+        "German": "de-DE",
+        "Telugu": "te-IN",
+        "Tamil": "ta-IN",
+        "Bengali": "bn-IN",
+        "Marathi": "mr-IN",
+        "Gujarati": "gu-IN",
+        "Kannada": "kn-IN",
+        "Malayalam": "ml-IN"
+      };
+      recognition.lang = langMap[language] || "en-US";
+      
+      try {
+        recognition.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error("Failed to start speech recognition:", err);
+        setIsListening(false);
+      }
+    }
+  };
+
 
   const handleTranslateMessage = async (msgIndex: number, text: string, targetLang: string) => {
     if (targetLang === "Original") {
@@ -154,9 +269,154 @@ export default function App() {
   useEffect(() => {
     setMessageTranslations({});
   }, [currentSessionId]);
-
+  
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [persona, setPersona] = useState<"krishna" | "scholar">("krishna");
+
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+
+  // Stop any playing speech when session switches or component unmounts
+  useEffect(() => {
+    window.speechSynthesis?.cancel();
+    setSpeakingIndex(null);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  const speakMessage = (index: number, text: string, langName: string, isRetry = false) => {
+    if (!window.speechSynthesis) {
+      setError("Speech synthesis is not supported in this browser.");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (speakingIndex === index  && !isRetry) {
+      window.speechSynthesis.cancel();
+      setSpeakingIndex(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    // Clean markdown characters for smoother, clean spoken audio
+    const cleanText = text
+      .replace(/[*#`_\-]/g, "") // remove basic markdown formatting characters
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // clean links
+      .trim();
+
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+
+    if (!isRetry) {
+    // Meditative, spiritual voice properties for Lord Krishna / spiritual guide persona
+    // Slightly lower pitch and slower speed to sound steady, calm, wise and spiritual
+    utterance.pitch = 0.88; // Deeper, warmer, more resonant tone
+    utterance.rate = 0.82;  // Meditative, calm and steady pace
+    } else {
+      // Safe standard values for browser/system fallback when custom parameters trigger synthesis-failed
+      utterance.pitch = 1.0;
+      utterance.rate = 1.0;
+    }
+
+
+    const langMap: Record<string, string> = {
+      "English": "en-US",
+      "Hindi": "hi-IN",
+      "Spanish": "es-ES",
+      "Sanskrit": "hi-IN", // Map Sanskrit to Hindi (hi-IN) as Hindi voices read Sanskrit Devanagari beautifully!
+      "French": "fr-FR",
+      "German": "de-DE",
+      "Telugu": "te-IN",
+      "Tamil": "ta-IN",
+      "Bengali": "bn-IN",
+      "Marathi": "mr-IN",
+      "Gujarati": "gu-IN",
+      "Kannada": "kn-IN",
+      "Malayalam": "ml-IN"
+    };
+
+    const bcpLang = langMap[langName] || "en-US";
+    utterance.lang = bcpLang;
+
+    if (!isRetry) {
+
+    // Get all available system voices
+    const voices = window.speechSynthesis.getVoices();
+    let spiritualVoice = null;
+
+    if (langName === "Sanskrit") {
+      // Prioritize Hindi or Indian English voices for reading Sanskrit
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi-IN")) || 
+                       voices.find(v => v.lang.startsWith("en-IN")) ||
+                       voices.find(v => v.name.toLowerCase().includes("india") || v.name.toLowerCase().includes("rishi") || v.name.toLowerCase().includes("veena"));
+    } else if (langName === "Hindi") {
+      // Hindi spiritual voice matching
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi-IN")) ||
+                       voices.find(v => v.lang.startsWith("en-IN"));
+    } else if (bcpLang.startsWith("en")) {
+      // For English spiritual reads, prioritize Indian-accented English if available for authenticity
+      spiritualVoice = voices.find(v => v.lang.startsWith("en-IN")) ||
+                       voices.find(v => v.name.toLowerCase().includes("india") || v.name.toLowerCase().includes("rishi") || v.name.toLowerCase().includes("veena") || v.name.toLowerCase().includes("priya"));
+    }
+
+    // Default fallback to any matching voice for the target language
+    if (!spiritualVoice) {
+      spiritualVoice = voices.find(v => v.lang.startsWith(bcpLang));
+    }
+
+    // Secondary fallback to any Indian-accented voice if Sanskrit/Hindi needs a reader
+    if (!spiritualVoice && (langName === "Sanskrit" || langName === "Hindi")) {
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi") || v.lang.startsWith("en-IN"));
+    }
+
+    if (spiritualVoice) {
+      utterance.voice = spiritualVoice;
+      utterance.lang = spiritualVoice.lang; // Override lang to match the chosen voice's actual language
+    }
+  }
+
+    utterance.onend = () => {
+      setSpeakingIndex(null);
+    };
+
+    utterance.onerror = (err) => {
+      // "interrupted" is a standard event triggered when we manually cancel or stop speech.
+      // We should ignore it and not report it as an actual failure.
+      if (err.error === "interrupted") {
+        setSpeakingIndex(null);
+        return;
+      }
+      
+      console.warn("Speech synthesis notice/error:", err.error || err);
+
+      // If we haven't retried yet and got "synthesis-failed" (or any other failure),
+      // attempt safe default system fallback
+      if (!isRetry) {
+        console.log("Speech synthesis failed with custom settings. Retrying with default system voice and standard pitch/rate...");
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+          speakMessage(index, text, langName, true);
+        }, 100);
+        return;
+      }
+      setSpeakingIndex(null);
+      
+      // If voice is completely unavailable, provide a gentle friendly banner
+      if (err.error === "language-unavailable") {
+        setError(`The voice for ${langName} is not currently installed or available on this system/browser.`);
+        setTimeout(() => setError(null), 4000);
+      }
+    };
+
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  };
+  
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -635,7 +895,7 @@ export default function App() {
 
 const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
     <div className={cn(
-      "overflow-hidden flex items-center justify-center bg-indigo-50",
+      "overflow-hidden flex items-center justify-center bg-indigo-55",
       circular ? "w-full h-full rounded-full" : "w-full h-full rounded-lg"
     )}>
       <img 
@@ -648,7 +908,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
   );
 
   return (
-    <div className="relative bg-[#F9FAFB] flex h-screen text-slate-900 font-sans overflow-hidden">
+    <div className="relative flex h-screen text-slate-900 font-sans overflow-hidden">
 
       {/* Full-screen fixed backdrop */}
       <div className="backdrop-fixed" aria-hidden="true" />
@@ -1049,6 +1309,34 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                                 <span>Translating...</span>
                               </div>
                             ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => speakMessage(
+                                    index, 
+                                    messageTranslations[index]?.text || message.content, 
+                                    messageTranslations[index]?.lang || language
+                                  )}
+                                  className={cn(
+                                    "p-1.5 rounded-lg border transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer",
+                                    speakingIndex === index 
+                                      ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200" 
+                                      : "bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200"
+                                  )}
+                                  title={speakingIndex === index ? "Stop speaking" : "Speak response aloud"}
+                                >
+                                  {speakingIndex === index ? (
+                                    <>
+                                      <VolumeX className="w-3.5 h-3.5 text-red-500" />
+                                      <span className="text-[10px] font-bold">Stop</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3.5 h-3.5" />
+                                      <span className="text-[10px] font-bold">Listen</span>
+                                    </>
+                                  )}
+                                </button>
                               <select
                                 onChange={(e) => handleTranslateMessage(index, message.content, e.target.value)}
                                 value={messageTranslations[index]?.lang || "Original"}
@@ -1069,6 +1357,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                                 <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
                                 <option value="Malayalam">മലയാളం (Malayalam)</option>
                               </select>
+                              </>
                             )}
                           </div>
                         </div>
@@ -1113,6 +1402,23 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                   autoCorrect="off"
                   spellCheck="false"
                 />
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  className={cn(
+                    "p-2.5 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center border",
+                    isListening 
+                      ? "bg-red-500 hover:bg-red-600 text-white border-red-600 animate-pulse" 
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+                  )}
+                  title={isListening ? "Listening... Click to stop" : "Start Voice Input"}
+                >
+                  {isListening ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
+                </button>
                 <button
                   id="send-message-btn"
                   type="submit"
