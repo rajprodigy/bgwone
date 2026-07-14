@@ -895,7 +895,7 @@ export default function App() {
 
 const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
     <div className={cn(
-      "overflow-hidden flex items-center justify-center bg-indigo-50",
+      "overflow-hidden flex items-center justify-center bg-indigo-55",
       circular ? "w-full h-full rounded-full" : "w-full h-full rounded-lg"
     )}>
       <img 
@@ -908,7 +908,7 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
   );
 
   return (
-    <div className="relative bg-[#F9FAFB] flex h-screen text-slate-900 font-sans overflow-hidden">
+    <div className="relative flex h-screen text-slate-900 font-sans overflow-hidden">
 
       {/* Full-screen fixed backdrop */}
       <div className="backdrop-fixed" aria-hidden="true" />
