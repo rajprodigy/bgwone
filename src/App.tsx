@@ -45,35 +45,21 @@ import { extractTextFromPdf, chunkText } from "./lib/pdfUtils";
 import { auth, loginWithGoogle, logout, isAdmin as checkAdmin, saveGitaData, loadGitaData } from "./lib/firebase";
 import { saveMessageToRag, searchRagStorage, type StoredMessage } from "./lib/ragStorage";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-
-export interface ChatSession {
-  id: string;
-  title: string;
-  messages: Message[];
-  updatedAt: string;
-}
-
-const loadSessionsFromLocalStorage = (): ChatSession[] => {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const data = window.localStorage.getItem("_gita_chat_sessions_v1");
-      if (data) return JSON.parse(data);
-    }
-  } catch (e) {
-    console.warn("localStorage read failed:", e);
-  }
-  return [];
-};
-
-const saveSessionsToLocalStorage = (sessions: ChatSession[]) => {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem("_gita_chat_sessions_v1", JSON.stringify(sessions));
-    }
-  } catch (e) {
-    console.warn("localStorage write failed:", e);
-  }
-};
+import {
+  createDefaultFileState,
+  createSession,
+  loadSessionsFromLocalStorage,
+  saveSessionsToLocalStorage,
+  updateSessionTitle,
+  type ChatSession,
+  type UploadedFileState,
+  DEFAULT_GREETING,
+  DEFAULT_GITA_DESCRIPTION,
+  getLanguageOptions,
+  getSpeechLanguageCode,
+  getSpeechVoiceLanguage,
+  cleanSpeechText,
+} from "./lib/appUtils";
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -81,7 +67,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const [file, setFile] = useState<{ name: string; base64: string; extractedText?: string; pdfUrl?: string; pdfSize?: number } | null>(null);
+  const [file, setFile] = useState<UploadedFileState | null>(null);
   const [vectorStore, setVectorStore] = useState<Chunk[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -182,22 +168,7 @@ export default function App() {
     if (isListening) {
       recognition.stop();
     } else {
-      const langMap: Record<string, string> = {
-        "English": "en-US",
-        "Hindi": "hi-IN",
-        "Spanish": "es-ES",
-        "Sanskrit": "en-US", // Map Sanskrit input directly to English since sa-IN is unsupported on browsers, enabling auto-translation!
-        "French": "fr-FR",
-        "German": "de-DE",
-        "Telugu": "te-IN",
-        "Tamil": "ta-IN",
-        "Bengali": "bn-IN",
-        "Marathi": "mr-IN",
-        "Gujarati": "gu-IN",
-        "Kannada": "kn-IN",
-        "Malayalam": "ml-IN"
-      };
-      recognition.lang = langMap[language] || "en-US";
+      recognition.lang = getSpeechLanguageCode(language);
       
       try {
         recognition.start();
@@ -272,6 +243,7 @@ export default function App() {
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [persona, setPersona] = useState<"krishna" | "scholar">("krishna");
+  const languageOptions = getLanguageOptions();
 
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
 
@@ -302,11 +274,7 @@ export default function App() {
 
     window.speechSynthesis.cancel();
 
-    // Clean markdown characters for smoother, clean spoken audio
-    const cleanText = text
-      .replace(/[*#`_\-]/g, "") // remove basic markdown formatting characters
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // clean links
-      .trim();
+    const cleanText = cleanSpeechText(text);
 
     if (!cleanText) return;
 
@@ -324,23 +292,7 @@ export default function App() {
     }
 
 
-    const langMap: Record<string, string> = {
-      "English": "en-US",
-      "Hindi": "hi-IN",
-      "Spanish": "es-ES",
-      "Sanskrit": "hi-IN", // Map Sanskrit to Hindi (hi-IN) as Hindi voices read Sanskrit Devanagari beautifully!
-      "French": "fr-FR",
-      "German": "de-DE",
-      "Telugu": "te-IN",
-      "Tamil": "ta-IN",
-      "Bengali": "bn-IN",
-      "Marathi": "mr-IN",
-      "Gujarati": "gu-IN",
-      "Kannada": "kn-IN",
-      "Malayalam": "ml-IN"
-    };
-
-    const bcpLang = langMap[langName] || "en-US";
+    const bcpLang = getSpeechVoiceLanguage(langName);
     utterance.lang = bcpLang;
 
     if (!isRetry) {
@@ -438,13 +390,7 @@ export default function App() {
   }, []);
 
   const setDefaultGitaReference = () => {
-    const defaultFile = { 
-      name: "Bhagavad Gita (Divine Wisdom Guide)", 
-      base64: "", 
-      extractedText: "The Bhagavad Gita is a 700-verse Hindu scripture that is part of the epic Mahabharata. It features a dialog between Pandava prince Arjuna and his guide and charioteer Lord Krishna, imparting teachings on selfless duty (Karma Yoga), devotion (Bhakti Yoga), knowledge (Jnana Yoga), and attaining absolute inner peace.",
-      pdfUrl: "",
-      pdfSize: 0
-    };
+    const defaultFile = createDefaultFileState();
     setFile(defaultFile);
     setVectorStore([]);
 
@@ -454,15 +400,11 @@ export default function App() {
       setCurrentSessionId(cachedSessions[0].id);
       setMessages(cachedSessions[0].messages);
     } else {
-      const defaultSess: ChatSession = {
+      const defaultSess = createSession({
         id: 'initial',
         title: 'First Consult',
-        messages: [{ 
-          role: "model", 
-          content: "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?" 
-        }],
-        updatedAt: new Date().toISOString()
-      };
+        messages: [{ role: "model", content: DEFAULT_GREETING }],
+      });
       setSessions([defaultSess]);
       setCurrentSessionId('initial');
       setMessages(defaultSess.messages);
@@ -490,22 +432,15 @@ export default function App() {
         let loadedFile = null;
         if (data) {
           setVectorStore(data.chunks);
-          loadedFile = { 
-            name: data.metadata.name, 
-            base64: "", 
+          loadedFile = createDefaultFileState({
+            name: data.metadata.name,
             extractedText: "",
             pdfUrl: data.metadata.pdfUrl || "",
-            pdfSize: data.metadata.pdfSize || 0
-          };
+            pdfSize: data.metadata.pdfSize || 0,
+          });
           setFile(loadedFile);
         } else {
-          loadedFile = { 
-            name: "Bhagavad Gita (Divine Wisdom Guide)", 
-            base64: "", 
-            extractedText: "The Bhagavad Gita is a 700-verse Hindu scripture that is part of the epic Mahabharata. It features a dialog between Pandava prince Arjuna and his guide and charioteer Lord Krishna, imparting teachings on selfless duty (Karma Yoga), devotion (Bhakti Yoga), knowledge (Jnana Yoga), and attaining absolute inner peace.",
-            pdfUrl: "",
-            pdfSize: 0
-          };
+          loadedFile = createDefaultFileState();
           setFile(loadedFile);
           setVectorStore([]);
         }
@@ -520,12 +455,11 @@ export default function App() {
             ? `Peace be with you. The Gita wisdom is active. How can I guide you today?`
             : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
           
-          const defaultSess: ChatSession = {
+          const defaultSess = createSession({
             id: 'initial',
             title: 'First Consult',
             messages: [{ role: "model", content: greetingText }],
-            updatedAt: new Date().toISOString()
-          };
+          });
           setSessions([defaultSess]);
           setCurrentSessionId('initial');
           setMessages(defaultSess.messages);
@@ -698,19 +632,13 @@ export default function App() {
     const updatedMessages: Message[] = [...messages, { role: "user", content: userMessage }];
     setMessages(updatedMessages);
 
-    // Update sessions state immediately with user message and compute dynamic title
     setSessions(prev => {
       const next = prev.map(s => {
         if (s.id === currentSessionId) {
-          const isNewChat = s.title === "New Guidance" || s.title === "First Consult";
-          const newTitle = isNewChat 
-            ? (userMessage.length > 25 ? userMessage.substring(0, 25).trim() + "..." : userMessage)
-            : s.title;
+          const updatedSession = updateSessionTitle({ ...s, messages: updatedMessages }, userMessage);
           return {
-            ...s,
-            title: newTitle,
+            ...updatedSession,
             messages: updatedMessages,
-            updatedAt: new Date().toISOString()
           };
         }
         return s;
@@ -827,12 +755,9 @@ export default function App() {
       ? `Peace be with you. The Bhagavad Gita is active. How can I guide you today?`
       : "Peace be with you. The Bhagavad Gita scripture is active and ready to guide you. How can I help you navigate the battles of your life today?";
     
-    const newSession: ChatSession = {
-      id: Math.random().toString(36).substring(2, 9),
-      title: "New Guidance",
-      messages: [{ role: "model", content: greeting }],
-      updatedAt: new Date().toISOString()
-    };
+    const newSession = createSession({
+      greeting,
+    });
     
     const updatedSessions = [newSession, ...sessions];
     setSessions(updatedSessions);
@@ -874,12 +799,7 @@ export default function App() {
         const greeting = file 
           ? `Peace be with you. The Gita wisdom store (**${file.name}**) is active. How can I guide you today?`
           : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
-        const newSession: ChatSession = {
-          id: Math.random().toString(36).substring(2, 9),
-          title: "New Guidance",
-          messages: [{ role: "model", content: greeting }],
-          updatedAt: new Date().toISOString()
-        };
+        const newSession = createSession({ greeting });
         setSessions([newSession]);
         setCurrentSessionId(newSession.id);
         setMessages(newSession.messages);
@@ -1066,10 +986,15 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                 <Menu className="w-5 h-5" />
               </button>
             )}
-      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden border border-indigo-100 p-0.5 shrink-0">
-              <KrishnaIcon circular />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-indigo-100 p-0.5 shrink-0">
+                <KrishnaIcon circular />
+              </div>
+              <div className="leading-tight">
+                <div className="font-bold text-lg sm:text-xl text-indigo-600">BHAGAVAD GITA</div>
+                <div className="text-[11px] sm:text-xs text-slate-500">Ancient wisdom for modern life</div>
+              </div>
             </div>
-            <span>Bhagavad Gita </span>
           </div>
           
           <div className="flex items-center gap-1 sm:gap-2.5 min-w-0">
@@ -1100,19 +1025,11 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                 className="bg-transparent border-none text-[11px] sm:text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1 py-0"
                 title="Select language for responses"
               >
-                        <option value="English">English</option>
-                        <option value="Hindi">हिन्दी (Hindi)</option>
-                        <option value="Spanish">Español (Spanish)</option>
-                        <option value="Sanskrit">संस्कृतम् (Sanskrit)</option>
-                        <option value="French">Français (French)</option>
-                        <option value="German">Deutsch (German)</option>
-                        <option value="Telugu">తెలుగు (Telugu)</option>
-                        <option value="Tamil">தமிழ் (Tamil)</option>
-                        <option value="Bengali">বাংলা (Bengali)</option>
-                        <option value="Marathi">मराठी (Marathi)</option>
-                        <option value="Gujarati">ગુજરાતી (Gujarati)</option>
-                        <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
-                        <option value="Malayalam">മലയാളం (Malayalam)</option>
+                {languageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
             
@@ -1343,20 +1260,12 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                                 className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] text-slate-500 font-bold py-1 px-2 cursor-pointer transition-all focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
                               >
                                 <option value="Original">Translate response...</option>
-                                <option value="English">English</option>
-                                <option value="Hindi">हिन्दी (Hindi)</option>
-                                <option value="Spanish">Español (Spanish)</option>
-                                <option value="Sanskrit">संस्कृतम् (Sanskrit)</option>
-                                <option value="French">Français (French)</option>
-                                <option value="German">Deutsch (German)</option>
-                                <option value="Telugu">తెలుగు (Telugu)</option>
-                                <option value="Tamil">தமிழ் (Tamil)</option>
-                                <option value="Bengali">বাংলা (Bengali)</option>
-                                <option value="Marathi">मराठी (Marathi)</option>
-                                <option value="Gujarati">ગુજરાતી (Gujarati)</option>
-                                <option value="Kannada">ಕನ್ನಡ (Kannada)</option>
-                                <option value="Malayalam">മലയാളం (Malayalam)</option>
-                              </select>
+                                {languageOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                                </select>
                               </>
                             )}
                           </div>
@@ -1449,3 +1358,4 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
     </div>
   );
 }
+
