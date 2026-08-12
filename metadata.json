@@ -1,7 +1,9 @@
 {
   "name": "Remix: Remix: Gita service",
   "description": "An interactive AI agent that helps you understand, summarize, and query PDF documents using Google Gemini.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "microphone"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

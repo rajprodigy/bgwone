@@ -17,8 +17,14 @@ import {
   X,
   MessageSquare,
   Sparkles,
-  Plus,
-  Menu
+  Plus,  
+  Menu,
+  Globe,
+  LogOut,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -30,6 +36,7 @@ import {
   chatWithContext, 
   getEmbeddings, 
   cosineSimilarity, 
+  translateText,
   type Message, 
   type Chunk,
   retrieveRagContextFromPastMessages
@@ -38,35 +45,21 @@ import { extractTextFromPdf, chunkText } from "./lib/pdfUtils";
 import { auth, loginWithGoogle, logout, isAdmin as checkAdmin, saveGitaData, loadGitaData } from "./lib/firebase";
 import { saveMessageToRag, searchRagStorage, type StoredMessage } from "./lib/ragStorage";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-
-export interface ChatSession {
-  id: string;
-  title: string;
-  messages: Message[];
-  updatedAt: string;
-}
-
-const loadSessionsFromLocalStorage = (): ChatSession[] => {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const data = window.localStorage.getItem("_gita_chat_sessions_v1");
-      if (data) return JSON.parse(data);
-    }
-  } catch (e) {
-    console.warn("localStorage read failed:", e);
-  }
-  return [];
-};
-
-const saveSessionsToLocalStorage = (sessions: ChatSession[]) => {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem("_gita_chat_sessions_v1", JSON.stringify(sessions));
-    }
-  } catch (e) {
-    console.warn("localStorage write failed:", e);
-  }
-};
+import {
+  createDefaultFileState,
+  createSession,
+  loadSessionsFromLocalStorage,
+  saveSessionsToLocalStorage,
+  updateSessionTitle,
+  type ChatSession,
+  type UploadedFileState,
+  DEFAULT_GREETING,
+  DEFAULT_GITA_DESCRIPTION,
+  getLanguageOptions,
+  getSpeechLanguageCode,
+  getSpeechVoiceLanguage,
+  cleanSpeechText,
+} from "./lib/appUtils";
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -74,7 +67,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const [file, setFile] = useState<{ name: string; base64: string; extractedText?: string; pdfUrl?: string; pdfSize?: number } | null>(null);
+  const [file, setFile] = useState<UploadedFileState | null>(null);
   const [vectorStore, setVectorStore] = useState<Chunk[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -87,8 +80,295 @@ export default function App() {
   // Chat Session states
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>("");
+  const [language, setLanguage] = useState<string>("English");
+
+  const languageRef = useRef(language);
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
+
+  const [messageTranslations, setMessageTranslations] = useState<Record<number, { text: string; lang: string }>>({});
+  const [translatingIndex, setTranslatingIndex] = useState<number | null>(null);
+  
+  const [isListening, setIsListening] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+
+      rec.onresult = async (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          const currentLang = languageRef.current;
+          let textToInsert = transcript;
+
+          if (currentLang && currentLang !== "English") {
+            try {
+              setStatus(`Translating speech to ${currentLang}...`);
+              textToInsert = await translateText(transcript, currentLang);
+            } catch (err) {
+              console.error("Speech translation error:", err);
+            } finally {
+              setStatus(null);
+            }
+          }
+
+          setInputText(prev => {
+            const base = prev.trim();
+            return base ? `${base} ${textToInsert.trim()}` : textToInsert.trim();
+          });
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        if (event.error === "no-speech") {
+          console.warn("Speech recognition ended: no speech was detected.");
+          setIsListening(false);
+          return;
+        }
+        console.error("Speech recognition error:", event.error);
+        
+        // Handle browser limitations for unsupported locales (like sa-IN, ml-IN, etc.) gracefully.
+        // Fallback to English and restart so the user can speak in English and get it translated.
+        if (event.error === "language-not-supported" || event.error === "not-allowed" || event.error === "service-not-allowed") {
+          if (rec.lang !== "en-US") {
+            console.log("Selected speech language not supported by browser. Falling back to English with translation...");
+            rec.lang = "en-US";
+            try {
+              rec.start();
+              setIsListening(true);
+              return;
+            } catch (retryErr) {
+              console.error("Speech recognition retry failed:", retryErr);
+            }
+          }
+        }
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      setRecognition(rec);
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognition) {
+      setError("Speech recognition is not supported in this browser. Try Chrome or Safari.");
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+
+    if (isListening) {
+      recognition.stop();
+    } else {
+      recognition.lang = getSpeechLanguageCode(language);
+      
+      try {
+        recognition.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error("Failed to start speech recognition:", err);
+        setIsListening(false);
+      }
+    }
+  };
+
+
+  const handleTranslateMessage = async (msgIndex: number, text: string, targetLang: string) => {
+    if (targetLang === "Original") {
+      const updated = { ...messageTranslations };
+      delete updated[msgIndex];
+      setMessageTranslations(updated);
+      return;
+    }
+
+    setTranslatingIndex(msgIndex);
+    try {
+      const translated = await translateText(text, targetLang);
+      setMessageTranslations(prev => ({
+        ...prev,
+        [msgIndex]: { text: translated, lang: targetLang }
+      }));
+    } catch (err) {
+      console.error("Translation fail:", err);
+    } finally {
+      setTranslatingIndex(null);
+    }
+  };
+
+  const handleGlobalLanguageChange = async (targetLang: string) => {
+    setLanguage(targetLang);
+    if (!messages || messages.length === 0) return;
+
+    if (targetLang === "English") {
+      setMessageTranslations({});
+      return;
+    }
+
+    // Translate all model messages in the current conversation to the new target language
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === "model") {
+        if (messageTranslations[i]?.lang === targetLang) {
+          continue;
+        }
+
+        setTranslatingIndex(i);
+        try {
+          const translated = await translateText(msg.content, targetLang);
+          setMessageTranslations(prev => ({
+            ...prev,
+            [i]: { text: translated, lang: targetLang }
+          }));
+        } catch (err) {
+          console.error("Global translation error:", err);
+        } finally {
+          setTranslatingIndex(null);
+        }
+      }
+    }
+  };
+
+  // Reset translations on session switches
+  useEffect(() => {
+    setMessageTranslations({});
+  }, [currentSessionId]);
+  
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [persona, setPersona] = useState<"krishna" | "scholar">("krishna");
+  const languageOptions = getLanguageOptions();
+
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+
+  // Stop any playing speech when session switches or component unmounts
+  useEffect(() => {
+    window.speechSynthesis?.cancel();
+    setSpeakingIndex(null);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  const speakMessage = (index: number, text: string, langName: string, isRetry = false) => {
+    if (!window.speechSynthesis) {
+      setError("Speech synthesis is not supported in this browser.");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (speakingIndex === index  && !isRetry) {
+      window.speechSynthesis.cancel();
+      setSpeakingIndex(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const cleanText = cleanSpeechText(text);
+
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+
+    if (!isRetry) {
+    // Meditative, spiritual voice properties for Lord Krishna / spiritual guide persona
+    // Slightly lower pitch and slower speed to sound steady, calm, wise and spiritual
+    utterance.pitch = 0.88; // Deeper, warmer, more resonant tone
+    utterance.rate = 0.82;  // Meditative, calm and steady pace
+    } else {
+      // Safe standard values for browser/system fallback when custom parameters trigger synthesis-failed
+      utterance.pitch = 1.0;
+      utterance.rate = 1.0;
+    }
+
+
+    const bcpLang = getSpeechVoiceLanguage(langName);
+    utterance.lang = bcpLang;
+
+    if (!isRetry) {
+
+    // Get all available system voices
+    const voices = window.speechSynthesis.getVoices();
+    let spiritualVoice = null;
+
+    if (langName === "Sanskrit") {
+      // Prioritize Hindi or Indian English voices for reading Sanskrit
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi-IN")) || 
+                       voices.find(v => v.lang.startsWith("en-IN")) ||
+                       voices.find(v => v.name.toLowerCase().includes("india") || v.name.toLowerCase().includes("rishi") || v.name.toLowerCase().includes("veena"));
+    } else if (langName === "Hindi") {
+      // Hindi spiritual voice matching
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi-IN")) ||
+                       voices.find(v => v.lang.startsWith("en-IN"));
+    } else if (bcpLang.startsWith("en")) {
+      // For English spiritual reads, prioritize Indian-accented English if available for authenticity
+      spiritualVoice = voices.find(v => v.lang.startsWith("en-IN")) ||
+                       voices.find(v => v.name.toLowerCase().includes("india") || v.name.toLowerCase().includes("rishi") || v.name.toLowerCase().includes("veena") || v.name.toLowerCase().includes("priya"));
+    }
+
+    // Default fallback to any matching voice for the target language
+    if (!spiritualVoice) {
+      spiritualVoice = voices.find(v => v.lang.startsWith(bcpLang));
+    }
+
+    // Secondary fallback to any Indian-accented voice if Sanskrit/Hindi needs a reader
+    if (!spiritualVoice && (langName === "Sanskrit" || langName === "Hindi")) {
+      spiritualVoice = voices.find(v => v.lang.startsWith("hi") || v.lang.startsWith("en-IN"));
+    }
+
+    if (spiritualVoice) {
+      utterance.voice = spiritualVoice;
+      utterance.lang = spiritualVoice.lang; // Override lang to match the chosen voice's actual language
+    }
+  }
+
+    utterance.onend = () => {
+      setSpeakingIndex(null);
+    };
+
+    utterance.onerror = (err) => {
+      // "interrupted" is a standard event triggered when we manually cancel or stop speech.
+      // We should ignore it and not report it as an actual failure.
+      if (err.error === "interrupted") {
+        setSpeakingIndex(null);
+        return;
+      }
+      
+      console.warn("Speech synthesis notice/error:", err.error || err);
+
+      // If we haven't retried yet and got "synthesis-failed" (or any other failure),
+      // attempt safe default system fallback
+      if (!isRetry) {
+        console.log("Speech synthesis failed with custom settings. Retrying with default system voice and standard pitch/rate...");
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+          speakMessage(index, text, langName, true);
+        }, 100);
+        return;
+      }
+      setSpeakingIndex(null);
+      
+      // If voice is completely unavailable, provide a gentle friendly banner
+      if (err.error === "language-unavailable") {
+        setError(`The voice for ${langName} is not currently installed or available on this system/browser.`);
+        setTimeout(() => setError(null), 4000);
+      }
+    };
+
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  };
+  
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -110,13 +390,7 @@ export default function App() {
   }, []);
 
   const setDefaultGitaReference = () => {
-    const defaultFile = { 
-      name: "Bhagavad Gita (Divine Wisdom Guide)", 
-      base64: "", 
-      extractedText: "The Bhagavad Gita is a 700-verse Hindu scripture that is part of the epic Mahabharata. It features a dialog between Pandava prince Arjuna and his guide and charioteer Lord Krishna, imparting teachings on selfless duty (Karma Yoga), devotion (Bhakti Yoga), knowledge (Jnana Yoga), and attaining absolute inner peace.",
-      pdfUrl: "",
-      pdfSize: 0
-    };
+    const defaultFile = createDefaultFileState();
     setFile(defaultFile);
     setVectorStore([]);
 
@@ -126,15 +400,11 @@ export default function App() {
       setCurrentSessionId(cachedSessions[0].id);
       setMessages(cachedSessions[0].messages);
     } else {
-      const defaultSess: ChatSession = {
+      const defaultSess = createSession({
         id: 'initial',
         title: 'First Consult',
-        messages: [{ 
-          role: "model", 
-          content: "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?" 
-        }],
-        updatedAt: new Date().toISOString()
-      };
+        messages: [{ role: "model", content: DEFAULT_GREETING }],
+      });
       setSessions([defaultSess]);
       setCurrentSessionId('initial');
       setMessages(defaultSess.messages);
@@ -162,22 +432,15 @@ export default function App() {
         let loadedFile = null;
         if (data) {
           setVectorStore(data.chunks);
-          loadedFile = { 
-            name: data.metadata.name, 
-            base64: "", 
+          loadedFile = createDefaultFileState({
+            name: data.metadata.name,
             extractedText: "",
             pdfUrl: data.metadata.pdfUrl || "",
-            pdfSize: data.metadata.pdfSize || 0
-          };
+            pdfSize: data.metadata.pdfSize || 0,
+          });
           setFile(loadedFile);
         } else {
-          loadedFile = { 
-            name: "Bhagavad Gita (Divine Wisdom Guide)", 
-            base64: "", 
-            extractedText: "The Bhagavad Gita is a 700-verse Hindu scripture that is part of the epic Mahabharata. It features a dialog between Pandava prince Arjuna and his guide and charioteer Lord Krishna, imparting teachings on selfless duty (Karma Yoga), devotion (Bhakti Yoga), knowledge (Jnana Yoga), and attaining absolute inner peace.",
-            pdfUrl: "",
-            pdfSize: 0
-          };
+          loadedFile = createDefaultFileState();
           setFile(loadedFile);
           setVectorStore([]);
         }
@@ -192,12 +455,11 @@ export default function App() {
             ? `Peace be with you. The Gita wisdom is active. How can I guide you today?`
             : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
           
-          const defaultSess: ChatSession = {
+          const defaultSess = createSession({
             id: 'initial',
             title: 'First Consult',
             messages: [{ role: "model", content: greetingText }],
-            updatedAt: new Date().toISOString()
-          };
+          });
           setSessions([defaultSess]);
           setCurrentSessionId('initial');
           setMessages(defaultSess.messages);
@@ -370,19 +632,13 @@ export default function App() {
     const updatedMessages: Message[] = [...messages, { role: "user", content: userMessage }];
     setMessages(updatedMessages);
 
-    // Update sessions state immediately with user message and compute dynamic title
     setSessions(prev => {
       const next = prev.map(s => {
         if (s.id === currentSessionId) {
-          const isNewChat = s.title === "New Guidance" || s.title === "First Consult";
-          const newTitle = isNewChat 
-            ? (userMessage.length > 25 ? userMessage.substring(0, 25).trim() + "..." : userMessage)
-            : s.title;
+          const updatedSession = updateSessionTitle({ ...s, messages: updatedMessages }, userMessage);
           return {
-            ...s,
-            title: newTitle,
+            ...updatedSession,
             messages: updatedMessages,
-            updatedAt: new Date().toISOString()
           };
         }
         return s;
@@ -428,12 +684,12 @@ export default function App() {
         const combinedContext = [...topChunks, ...pastContextStrings];
         
         setStatus("Lord Krishna is preparing response...");
-        response = await chatWithContext(messages, userMessage, combinedContext, persona);
+        response = await chatWithContext(messages, userMessage, combinedContext, persona, language);
       } else {
         // Fallback to basic chat
         const isLargeFile = file.base64.length * 0.75 > GEMINI_INLINE_LIMIT;
         const pdfDataToSend = isLargeFile ? null : file.base64;
-        response = await chatWithPdf(pdfDataToSend, messages, userMessage, file.extractedText, persona);
+        response = await chatWithPdf(pdfDataToSend, messages, userMessage, file.extractedText, persona,language);
       }
       
       // Get embedding for model response
@@ -499,12 +755,9 @@ export default function App() {
       ? `Peace be with you. The Bhagavad Gita is active. How can I guide you today?`
       : "Peace be with you. The Bhagavad Gita scripture is active and ready to guide you. How can I help you navigate the battles of your life today?";
     
-    const newSession: ChatSession = {
-      id: Math.random().toString(36).substring(2, 9),
-      title: "New Guidance",
-      messages: [{ role: "model", content: greeting }],
-      updatedAt: new Date().toISOString()
-    };
+    const newSession = createSession({
+      greeting,
+    });
     
     const updatedSessions = [newSession, ...sessions];
     setSessions(updatedSessions);
@@ -546,12 +799,7 @@ export default function App() {
         const greeting = file 
           ? `Peace be with you. The Gita wisdom store (**${file.name}**) is active. How can I guide you today?`
           : "Peace be with you. The Gita wisdom system is active and ready to guide you. How can I help you navigate the battles of your life today?";
-        const newSession: ChatSession = {
-          id: Math.random().toString(36).substring(2, 9),
-          title: "New Guidance",
-          messages: [{ role: "model", content: greeting }],
-          updatedAt: new Date().toISOString()
-        };
+        const newSession = createSession({ greeting });
         setSessions([newSession]);
         setCurrentSessionId(newSession.id);
         setMessages(newSession.messages);
@@ -567,13 +815,13 @@ export default function App() {
 
 const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
     <div className={cn(
-      "overflow-hidden flex items-center justify-center bg-indigo-50",
+      "overflow-hidden flex items-center justify-center bg-indigo-55",
       circular ? "w-full h-full rounded-full" : "w-full h-full rounded-lg"
     )}>
       <img 
         src="krishna.jpg" 
         alt="Krishna"
-        className="w-full h-full object-cover scale-[1.2] object-top translate-y-1"
+        className="w-full h-full object-cover scale-[1.8] object-top translate-y-1"
         referrerPolicy="no-referrer"
       />
     </div>
@@ -727,8 +975,8 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <header id="main-nav" className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-20 sticky top-0">
-          <div className="flex items-center gap-2 font-bold text-xl text-indigo-600">
+       <header id="main-nav" className="h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between z-20 sticky top-0">
+          <div className="flex items-center gap-2 font-bold text-lg sm:text-xl text-indigo-600 shrink-0">
             {file && (
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -738,47 +986,55 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-indigo-100 p-0.5">
-              <KrishnaIcon circular />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-indigo-100 p-0.5 shrink-0">
+                <KrishnaIcon circular />
+              </div>
+              <div className="leading-tight">
+                <div className="font-bold text-lg sm:text-xl text-indigo-600">BHAGAVAD GITA</div>
+                <div className="text-[11px] sm:text-xs text-slate-500">Ancient wisdom for modern life</div>
+              </div>
             </div>
-            <span>Bhagavad Gita - Wisdom</span>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Guidance Mode Selection Toggle */}
-            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 p-0.5 rounded-xl border border-slate-200 transition-all shadow-inner shrink-0" id="persona-selector">
-              <button
-                onClick={() => setPersona("krishna")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer select-none",
-                  persona === "krishna"
-                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50 font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-                title="Converse directly with Lord Krishna and receive direct answers in verses"
+          <div className="flex items-center gap-1 sm:gap-2.5 min-w-0">
+            {/* Guidance Mode Selection Dropdown */}
+            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all shadow-inner gap-0.5 sm:gap-1.5 shrink-0" id="persona-selector">
+              {persona === "krishna" ? (
+                <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600/70 shrink-0" />
+              ) : (
+                <Bot className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-500 shrink-0" />
+              )}
+              <select
+                value={persona}
+                onChange={(e) => setPersona(e.target.value as "krishna" | "scholar")}
+                className="bg-transparent border-none text-[11px] sm:text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1 py-0"
+                title="Select Guidance Mode"
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                <span className="hidden sm:inline">Lord Krishna Mode</span>
-                <span className="inline sm:hidden">Krishna</span>
-              </button>
-              <button
-                onClick={() => setPersona("scholar")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer select-none",
-                  persona === "scholar"
-                    ? "bg-white text-slate-800 shadow-sm border border-slate-200/50 font-bold"
-                    : "text-slate-500 hover:text-slate-800"
-                )}
-                title="Analyze verses analytically with standard Gita scholar mode"
-              >
-                <Bot className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span className="hidden sm:inline">Gita Scholar Mode</span>
-                <span className="inline sm:hidden">Scholar</span>
-              </button>
+                <option value="krishna">Krishna</option>
+                <option value="scholar">Scholar</option>
+              </select>
             </div>
 
+            {/* Guidance Language Selection */}
+            <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 transition-all shadow-inner gap-0.5 sm:gap-1.5 shrink-0" id="language-selector">
+              <Globe className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600/70 shrink-0" />
+              <select
+                value={language}
+                onChange={(e) => handleGlobalLanguageChange(e.target.value)}
+                className="bg-transparent border-none text-[11px] sm:text-xs font-bold text-slate-600 focus:outline-none focus:ring-0 cursor-pointer pr-1 py-0"
+                title="Select language for responses"
+              >
+                {languageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
             {file && isAdminUser && (
-              <div className="hidden md:flex items-center gap-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg max-w-xs">
+              <div className="hidden lg:flex items-center gap-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg max-w-xs">
                 <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
                 <span className="text-xs font-medium text-slate-600 truncate">{file.name}</span>
               </div>
@@ -787,18 +1043,20 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
             {user ? (
               <button 
                 onClick={logout}
-                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer"
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer" title="Logout"
               >
-                {isAdminUser && <Sparkles className="w-3 h-3 text-amber-400" />}
-                Logout
+                 {isAdminUser && <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />}
+                <span className="hidden sm:inline">Logout</span>
+                <LogOut className="w-4 h-4 sm:hidden text-slate-400" />
               </button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button 
                   onClick={loginWithGoogle}
                   className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest transition-colors cursor-pointer"
                 >
-                  Admin Login
+                  <span className="hidden sm:inline">Admin Login</span>
+                  <span className="sm:hidden">Admin</span>
                 </button>
                 {(import.meta as any).env?.DEV && (
                   <button
@@ -810,8 +1068,8 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                     }}
                     className="text-[10px] text-amber-600 hover:text-amber-700 font-bold border border-amber-200 bg-amber-50 px-2 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer active:scale-95 animate-pulse"
                   >
-                    <Sparkles className="w-2.5 h-2.5 text-amber-500" />
-                    Dev Admin
+                    <Sparkles className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                    <span className="hidden sm:inline">Dev Admin</span>
                   </button>
                 )}
               </div>
@@ -950,8 +1208,69 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                         "markdown-body text-sm leading-relaxed",
                         message.role === "user" ? "text-slate-100" : "text-slate-700"
                       )}>
-                        <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
+                         <Markdown remarkPlugins={[remarkGfm]}>
+                          {messageTranslations[index]?.text || message.content}
+                        </Markdown>
                       </div>
+                       {message.role === "model" && (
+                        <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-4">
+                          <span className="text-[10px] text-slate-400 font-medium font-sans">
+                            {messageTranslations[index] 
+                              ? `Translated to ${messageTranslations[index].lang}` 
+                              : "Original response"}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {translatingIndex === index ? (
+                              <div className="flex items-center gap-1 text-[10px] text-indigo-500 font-medium">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>Translating...</span>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => speakMessage(
+                                    index, 
+                                    messageTranslations[index]?.text || message.content, 
+                                    messageTranslations[index]?.lang || language
+                                  )}
+                                  className={cn(
+                                    "p-1.5 rounded-lg border transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer",
+                                    speakingIndex === index 
+                                      ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200" 
+                                      : "bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200"
+                                  )}
+                                  title={speakingIndex === index ? "Stop speaking" : "Speak response aloud"}
+                                >
+                                  {speakingIndex === index ? (
+                                    <>
+                                      <VolumeX className="w-3.5 h-3.5 text-red-500" />
+                                      <span className="text-[10px] font-bold">Stop</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3.5 h-3.5" />
+                                      <span className="text-[10px] font-bold">Listen</span>
+                                    </>
+                                  )}
+                                </button>
+                              <select
+                                onChange={(e) => handleTranslateMessage(index, message.content, e.target.value)}
+                                value={messageTranslations[index]?.lang || "Original"}
+                                className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] text-slate-500 font-bold py-1 px-2 cursor-pointer transition-all focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                              >
+                                <option value="Original">Translate response...</option>
+                                {languageOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                                </select>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ))}
@@ -993,6 +1312,23 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
                   spellCheck="false"
                 />
                 <button
+                  type="button"
+                  onClick={toggleListening}
+                  className={cn(
+                    "p-2.5 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center border",
+                    isListening 
+                      ? "bg-red-500 hover:bg-red-600 text-white border-red-600 animate-pulse" 
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+                  )}
+                  title={isListening ? "Listening... Click to stop" : "Start Voice Input"}
+                >
+                  {isListening ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
+                </button>
+                <button
                   id="send-message-btn"
                   type="submit"
                   disabled={isLoading || !inputText.trim()}
@@ -1022,3 +1358,4 @@ const KrishnaIcon = ({ circular = false }: { circular?: boolean }) => (
     </div>
   );
 }
+

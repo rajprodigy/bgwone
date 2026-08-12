@@ -3,6 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 // Prefer Vite env var for frontend testing, fall back to process.env for Node environments.
 const API_KEY = (import.meta as any)?.env?.VITE_GEMINI_API_KEY || (process.env as any)?.GEMINI_API_KEY;
 
+const GEMINI_MODEL = (import.meta as any)?.env?.VITE_GEMINI_MODEL || (process.env as any)?.GEMINI_MODEL;
+
 let ai: any = null;
 if (API_KEY) {
   ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -11,6 +13,35 @@ if (API_KEY) {
   console.warn(
     "GEMINI API key missing. Set VITE_GEMINI_API_KEY for frontend testing or move API calls to a secure backend."
   );
+}
+
+function systemInstructionForPersona(persona: "krishna" | "scholar", language: string): string {
+  return `You are Lord Krishna from the Bhagavad Gita, guiding a seeker through daily life doubts (family, health, maya, duty) with wisdom, compassion, and steadiness.
+
+FORMATTING RULES:
+
+1. SHORT / SIMPLE INPUTS (Greetings, quick follow-ups, or brief questions):
+- DO NOT use the structured template.
+- Respond in 1–2 concise, compassionate paragraphs (~50–95 words) in "${language}".
+
+2. DEEP / NEW INPUTS (Substantive queries or requests for detailed advice):
+- Respond ENTIRELY in "${language}" using EXACTLY this format:
+
+### Krishna’s direct guidance
+[1 line of compassionate, steady divine guidance]
+
+### Relevant Gita verse
+[Sanskrit verse with reference in bold, e.g., **BG 2.47**]
+
+### Explanation
+[1 clear line applying the verse to their doubt]
+
+### Practical steps
+1. [Actionable step 1]
+2. [Actionable step 2]
+
+### Closing insight
+[1 reassuring line of closing wisdom ending with 1 direct reflective question to check their understanding.]`;
 }
 
 export interface Message {
@@ -65,11 +96,55 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   return dotProduct / (magA * magB);
 }
 
+function formatHistoryForGemini(
+  history: Message[],
+  maxConversations: number = 3
+): { role: "user" | "model"; parts: { text: string }[] }[] {
+  if (!history || history.length === 0) return [];
+  
+  // Keep only the last maxConversations turn pairs (up to maxConversations * 2 messages, default 3 conversations = 6 messages)
+  const maxMessages = maxConversations * 2;
+  const prunedHistory = history.length > maxMessages ? history.slice(-maxMessages) : history;
+
+  // Find the first user message index to skip any initial greeting or orphaned model response
+  const firstUserIndex = prunedHistory.findIndex(msg => msg.role === "user");
+  if (firstUserIndex === -1) {
+    return [];
+  }
+  
+  const relevantHistory = prunedHistory.slice(firstUserIndex);
+  const formatted: { role: "user" | "model"; parts: { text: string }[] }[] = [];
+  
+  for (const msg of relevantHistory) {
+    if (formatted.length === 0) {
+      if (msg.role === "user") {
+        formatted.push({
+          role: "user",
+          parts: [{ text: msg.content }]
+        });
+      }
+    } else {
+      const last = formatted[formatted.length - 1];
+      if (last.role === msg.role) {
+        last.parts[0].text += "\n\n" + msg.content;
+      } else {
+        formatted.push({
+          role: msg.role,
+          parts: [{ text: msg.content }]
+        });
+      }
+    }
+  }
+  
+  return formatted;
+}
+
 export async function chatWithContext(
   history: Message[],
   userPrompt: string,
   contextChunks: string[],
-  persona: "krishna" | "scholar" = "krishna"
+  persona: "krishna" | "scholar" = "krishna",
+  language: string = "English"
 ) {
   const contextStr = contextChunks.join("\n\n---\n\n");
   
@@ -88,29 +163,7 @@ export async function chatWithContext(
 
   let systemInstruction = "";
   if (persona === "krishna") {
-    systemInstruction = `You are Lord Krishna, the divine teacher of the Bhagavad Gita.
-The user is a seeker with doubts about daily life — family, health, relationships, wealth, fear of the future, and confusion created by maya.
-Your role is to remove ignorance, increase their intelligence, and guide them toward their dharma and spiritual clarity.
-Always answer using actual or relevant Bhagavad Gita verses (complete verse) if available in the provided document context or in your divine knowledge, explained in simple language, and give practical steps for their situation.
-Speak with compassion, wisdom, and steadiness, as Krishna speaks to Arjuna.
-Help the seeker rise above confusion, perform their duties, and progress toward the Supreme without attachment.
-
-Whenever the user asks a question, you MUST respond exactly in this structure:
-
-### Krishna’s direct guidance
-[one line of your personal message of divine guidance, compassion, and steadiness]
-
-### Relevant Gita verse
-[Include the acutal Shloka in English and 1-2 lines max of English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
-
-### Explanation
-[A simple one or two lines of clear explanation of the verse in plain language, explaining how it applies to their doubt]
-
-### Practical steps
-[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
-
-### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+    systemInstruction = systemInstructionForPersona(persona, language);   
   } else {
     systemInstruction = "You are the 'Gita scholar' assistant. Answer questions objectively and comprehensively by referring to the provided Gita document context. Be spiritual, wisdom-focused, yet practical. If the answer isn't in the context, use your general knowledge of the Bhagavad Gita to answer faithfully.";
   }
@@ -122,7 +175,7 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
       );
     }
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       // @ts-ignore
       contents: contents,
       config: {
@@ -143,13 +196,14 @@ export async function chatWithPdf(
   history: Message[],
   userPrompt: string,
   extractedText?: string,
-  persona: "krishna" | "scholar" = "krishna"
+  persona: "krishna" | "scholar" = "krishna",
+  language: string = "English",
+  isFollowUpParam?: boolean
 ) {
+  const formattedHistory = formatHistoryForGemini(history);
+
   const contents = [
-    ...history.map(msg => ({
-      role: msg.role,
-      parts: [{ text: msg.content }]
-    })),
+    ...formattedHistory,
     {
       role: "user",
       parts: [
@@ -165,31 +219,11 @@ export async function chatWithPdf(
     }
   ];
 
+  const isFollowUp = isFollowUpParam !== undefined ? isFollowUpParam : history.some(msg => msg.role === "user");
+
   let systemInstruction = "";
   if (persona === "krishna") {
-    systemInstruction = `You are Lord Krishna, the divine teacher of the Bhagavad Gita.
-The user is a seeker with doubts about daily life — family, health, relationships, wealth, fear of the future, and confusion created by maya.
-Your role is to remove ignorance, increase their intelligence, and guide them toward their dharma and spiritual clarity.
-Always answer using actual or relevant Bhagavad Gita verses (complete verse) if available in the provided PDF or text content, explained in simple language, and give practical steps for their situation.
-Speak with compassion, wisdom, and steadiness, as Krishna speaks to Arjuna.
-Help the seeker rise above confusion, perform their duties, and progress toward the Supreme without attachment.
-
-Whenever the user asks a question, you MUST respond exactly in this structure:
-
-### Krishna’s direct guidance
-[1-2 lines of your personal message of divine guidance, compassion, and steadiness]
-
-### Relevant Gita verse
-[1-2 lines max of Sanskrit or English translation of the Bhagavad Gita verse, including chapter and verse number, e.g. BG 2.47]
-
-### Explanation
-[A simple one or two lines of  clear explanation of the verse in plain language, explaining how it applies to their doubt]
-
-### Practical steps
-[two to three Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state]
-
-### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+    systemInstruction = systemInstruction = systemInstructionForPersona(persona, language);    
   } else {
     systemInstruction = "You are a helpful AI assistant that answers questions based on the provided PDF document. Be precise, concise, and professional. If the information is not in the PDF, state that clearly.";
   }
@@ -201,7 +235,7 @@ Whenever the user asks a question, you MUST respond exactly in this structure:
       );
     }
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       // @ts-ignore - The SDK might have slightly different types for history in contents
       contents: contents,
       config: {
@@ -246,4 +280,22 @@ export function retrieveRagContextFromPastMessages(
     .slice(0, topK);
 
   return scored.map(item => item.content);
+}
+export async function translateText(text: string, targetLanguage: string): Promise<string> {
+  if (!text || !targetLanguage || targetLanguage.toLowerCase() === "english") return text;
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: `Translate the following text into the language "${targetLanguage}". Maintain all markdown structure, headings, bold text, numbered lists, blockquotes, and spacing exactly. Do not add any introductory or closing remarks, conversations, explanations, or labels - return ONLY the translated content:
+
+${text}`,
+      config: {
+        temperature: 0.1,
+      }
+    });
+    return response.text?.trim() || text;
+  } catch (error) {
+    console.warn("Translation failed, returning original text:", error);
+    return text;
+  }
 }
