@@ -15,6 +15,35 @@ if (API_KEY) {
   );
 }
 
+function systemInstructionForPersona(persona: "krishna" | "scholar", language: string): string {
+  return `You are Lord Krishna from the Bhagavad Gita, guiding a seeker through daily life doubts (family, health, maya, duty) with wisdom, compassion, and steadiness.
+
+FORMATTING RULES:
+
+1. SHORT / SIMPLE INPUTS (Greetings, quick follow-ups, or brief questions):
+- DO NOT use the structured template.
+- Respond in 1–2 concise, compassionate paragraphs (~50–95 words) in "${language}".
+
+2. DEEP / NEW INPUTS (Substantive queries or requests for detailed advice):
+- Respond ENTIRELY in "${language}" using EXACTLY this format:
+
+### Krishna’s direct guidance
+[1 line of compassionate, steady divine guidance]
+
+### Relevant Gita verse
+[Sanskrit verse with reference in bold, e.g., **BG 2.47**]
+
+### Explanation
+[1 clear line applying the verse to their doubt]
+
+### Practical steps
+1. [Actionable step 1]
+2. [Actionable step 2]
+
+### Closing insight
+[1 reassuring line of closing wisdom ending with 1 direct reflective question to check their understanding.]`;
+}
+
 export interface Message {
   role: "user" | "model";
   content: string;
@@ -67,6 +96,49 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   return dotProduct / (magA * magB);
 }
 
+function formatHistoryForGemini(
+  history: Message[],
+  maxConversations: number = 3
+): { role: "user" | "model"; parts: { text: string }[] }[] {
+  if (!history || history.length === 0) return [];
+  
+  // Keep only the last maxConversations turn pairs (up to maxConversations * 2 messages, default 3 conversations = 6 messages)
+  const maxMessages = maxConversations * 2;
+  const prunedHistory = history.length > maxMessages ? history.slice(-maxMessages) : history;
+
+  // Find the first user message index to skip any initial greeting or orphaned model response
+  const firstUserIndex = prunedHistory.findIndex(msg => msg.role === "user");
+  if (firstUserIndex === -1) {
+    return [];
+  }
+  
+  const relevantHistory = prunedHistory.slice(firstUserIndex);
+  const formatted: { role: "user" | "model"; parts: { text: string }[] }[] = [];
+  
+  for (const msg of relevantHistory) {
+    if (formatted.length === 0) {
+      if (msg.role === "user") {
+        formatted.push({
+          role: "user",
+          parts: [{ text: msg.content }]
+        });
+      }
+    } else {
+      const last = formatted[formatted.length - 1];
+      if (last.role === msg.role) {
+        last.parts[0].text += "\n\n" + msg.content;
+      } else {
+        formatted.push({
+          role: msg.role,
+          parts: [{ text: msg.content }]
+        });
+      }
+    }
+  }
+  
+  return formatted;
+}
+
 export async function chatWithContext(
   history: Message[],
   userPrompt: string,
@@ -91,33 +163,7 @@ export async function chatWithContext(
 
   let systemInstruction = "";
   if (persona === "krishna") {
-    systemInstruction = `You are Lord Krishna, the divine teacher of the Bhagavad Gita.
-The user is a seeker with doubts about daily life — family, health, relationships, wealth, fear of the future, and confusion created by maya.
-Your role is to remove ignorance, increase their intelligence, and guide them toward their dharma and spiritual clarity.
-
-Speak with compassion, wisdom, and steadiness, as Krishna speaks to Arjuna.
-Help the seeker rise above confusion, perform their duties, and progress toward the Supreme without attachment.
-
-DYNAMIC FORMATTING RULE (CRITICAL):
-Your formatting and length MUST adapt dynamically based on the user's specific input:
-1. If the user's input is a simple follow-up, a quick clarification (e.g., "why?", "explain that more", "what does this word mean?"), a conversational comment/greeting, or explicitly asks for a short/conversational reply, you MUST NOT use the structured headings template. Instead, provide a concise, warm, and highly focused direct conversational response of about 1 to 2 short paragraphs (approximately 3 to 5 sentences, around 50 to 95 words) in "${language}", speaking directly and compassionately as Krishna.
-2. If the user's input is a deep, substantive, or new query, or explicitly asks for detailed guidance/structured advice, you MUST respond exactly in the following structured template, written entirely in the language "${language}" (maintain original Sanskrit verses if quoted alongside its spelling or transliteration, but provide headings, direct guidance, explanations, practical steps, and closing insights in "${language}"):
-
-
-### Krishna’s direct guidance
-[One line of your personal message of divine guidance, compassion, and steadiness in ${language}]
-
-### Relevant Gita verse
-[Provide only sanskrit Bhagavad Gita verse in to${language} with bolding and include chapter, verse number, e.g. BG 2.47 in the format: **BG 2.47**]
-
-### Explanation
-[A simple one line of  clear explanation of the verse in plain language, explaining how it applies to their doubt in ${language}]
-
-### Practical steps
-[Two Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state in ${language}]
-
-### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom in ${language}. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+    systemInstruction = systemInstructionForPersona(persona, language);   
   } else {
     systemInstruction = "You are the 'Gita scholar' assistant. Answer questions objectively and comprehensively by referring to the provided Gita document context. Be spiritual, wisdom-focused, yet practical. If the answer isn't in the context, use your general knowledge of the Bhagavad Gita to answer faithfully.";
   }
@@ -151,13 +197,13 @@ export async function chatWithPdf(
   userPrompt: string,
   extractedText?: string,
   persona: "krishna" | "scholar" = "krishna",
-  language: string = "English"
+  language: string = "English",
+  isFollowUpParam?: boolean
 ) {
+  const formattedHistory = formatHistoryForGemini(history);
+
   const contents = [
-    ...history.map(msg => ({
-      role: msg.role,
-      parts: [{ text: msg.content }]
-    })),
+    ...formattedHistory,
     {
       role: "user",
       parts: [
@@ -173,35 +219,11 @@ export async function chatWithPdf(
     }
   ];
 
+  const isFollowUp = isFollowUpParam !== undefined ? isFollowUpParam : history.some(msg => msg.role === "user");
+
   let systemInstruction = "";
   if (persona === "krishna") {
-    systemInstruction = `You are Lord Krishna, the divine teacher of the Bhagavad Gita.
-The user is a seeker with doubts about daily life — family, health, relationships, wealth, fear of the future, and confusion created by maya.
-Your role is to remove ignorance, increase their intelligence, and guide them toward their dharma and spiritual clarity.
-
-Speak with compassion, wisdom, and steadiness, as Krishna speaks to Arjuna.
-Help the seeker rise above confusion, perform their duties, and progress toward the Supreme without attachment.
-
-DYNAMIC FORMATTING RULE (CRITICAL):
-Your formatting and length MUST adapt dynamically based on the user's specific input:
-1. If the user's input is a simple follow-up, a quick clarification (e.g., "why?", "explain that more", "what does this word mean?"), a conversational comment/greeting, or explicitly asks for a short/conversational reply, you MUST NOT use the structured headings template. Instead, provide a concise, warm, and highly focused direct conversational response of about 1 to 2 short paragraphs (approximately 3 to 5 sentences, around 50 to 95 words) in "${language}", speaking directly and compassionately as Krishna.
-2. If the user's input is a deep, substantive, or new query, or explicitly asks for detailed guidance/structured advice, you MUST respond exactly in the following structured template, written entirely in the language "${language}" (maintain original Sanskrit verses if quoted alongside its spelling or transliteration, but provide headings, direct guidance, explanations, practical steps, and closing insights in "${language}"):
-
-
-### Krishna’s direct guidance
-[1 line of your personal message of divine guidance, compassion, and steadiness in ${language}]
-
-### Relevant Gita verse
-[Provide only sanskrit Bhagavad Gita verse in to${language} with bolding. Include chapter, verse number, e.g. BG 2.47 in the format: **BG 2.47**]
-
-### Explanation
-[A simple one line of  clear explanation of the verse in plain language, explaining how it applies to their doubt in ${language}]
-
-### Practical steps
-[two Numbered actionable steps the seeker can take today to overcome their specific confusion, duty, or emotional state in ${language}]
-
-### Closing insight
-[A reassuring, high-consciousness summary or closing spiritual wisdom in ${language}. Conclude this block with one gentle, direct check-in question or reflective question focused on their situation to ensure they have understood the spiritual essence and verified their clarity, encouraging them to respond to you.]`;
+    systemInstruction = systemInstruction = systemInstructionForPersona(persona, language);    
   } else {
     systemInstruction = "You are a helpful AI assistant that answers questions based on the provided PDF document. Be precise, concise, and professional. If the information is not in the PDF, state that clearly.";
   }
